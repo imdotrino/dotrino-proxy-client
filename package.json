@@ -1,0 +1,39 @@
+{
+  "name": "@dotrino/proxy-client",
+  "version": "0.6.3",
+  "description": "Cliente WebSocket para el proxy de Dotrino (tokens, canales, firma ECDSA, Web Push)",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    },
+    "./sw": "./sw/dotrino-push-sw.js",
+    "./sw/dotrino-push-sw.js": "./sw/dotrino-push-sw.js"
+  },
+  "files": [
+    "src",
+    "sw",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "websocket",
+    "proxy",
+    "dotrino",
+    "p2p",
+    "signaling"
+  ],
+  "author": "seyacat",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imdotrino/dotrino-proxy-client.git"
+  }
+}
