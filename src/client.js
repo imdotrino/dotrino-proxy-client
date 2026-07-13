@@ -1,5 +1,5 @@
 import { buildSignedChannel, getPublicKeyJwk, signData } from './signature.js'
-import { WebRTCManager, RTC_TAG } from './webrtc.js'
+import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS } from './webrtc.js'
 
 /**
  * Dotrino WebSocket proxy client.
@@ -75,6 +75,10 @@ export class WebSocketProxyClient {
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer)
       this._reconnectTimer = null
+    }
+    if (this._turnTimer) {
+      clearTimeout(this._turnTimer)
+      this._turnTimer = null
     }
     if (this._rtc) this._rtc.closeAll()
     if (this.ws) {
@@ -238,6 +242,69 @@ export class WebSocketProxyClient {
     const msg = { type: 'identify', data, signature }
     if (cert) msg.cert = cert // "una identidad": el proxy bindea este token también bajo tu maestra M
     return this._request(msg, 'identified')
+  }
+
+  /**
+   * Pedir al proxy credenciales TURN temporales (Cloudflare) para WebRTC.
+   * Requiere haber llamado antes a `identify` en ESTA conexión con la misma
+   * pubkey: el proxy solo emite a conexiones identificadas (así el TURN se
+   * usa solo desde apps Dotrino y no como relay abierto). Las credenciales
+   * expiran solas (TTL corto) y hay cuota por pubkey/hora.
+   *
+   * @param {Object} opts
+   * @param {string} opts.publicKey  Pubkey JWK string del vault (la de identify).
+   * @param {(data:any)=>Promise<string|{signature:string}>} opts.sign  Firma del vault (id.signData).
+   * @returns {Promise<{enabled:boolean, iceServers:any[]|null, expiresAt:number|null}>}
+   */
+  async getTurnCredentials ({ publicKey, sign } = {}) {
+    if (!publicKey || typeof sign !== 'function') {
+      throw new Error('getTurnCredentials requires { publicKey, sign }')
+    }
+    const data = { op: 'turn-credentials', publickey: publicKey, ts: Date.now() }
+    const signature = await normalizeSignature(sign, data)
+    const res = await this._request({ type: 'turn-credentials', data, signature }, 'turn-credentials')
+    return {
+      enabled: !!res.enabled,
+      iceServers: res.iceServers || null,
+      expiresAt: res.expiresAt || null
+    }
+  }
+
+  /**
+   * Activar TURN para WebRTC: obtiene credenciales temporales del proxy, las
+   * inyecta como ICE servers (junto a los STUN por defecto) y las renueva
+   * sola antes de expirar. Si el proxy no tiene TURN configurado, no cambia
+   * nada (los peers siguen STUN-only con fallback al proxy).
+   *
+   * Afecta a las conexiones P2P NUEVAS (los peers ya negociados conservan su
+   * configuración). Llamalo después de `identify`.
+   *
+   * @param {Object} opts  Igual que getTurnCredentials ({ publicKey, sign }).
+   * @returns {Promise<boolean>} true si TURN quedó activo.
+   */
+  async enableTurn ({ publicKey, sign } = {}) {
+    if (!this._rtc) throw new Error('WebRTC está deshabilitado en este cliente')
+    if (this._turnTimer) {
+      clearTimeout(this._turnTimer)
+      this._turnTimer = null
+    }
+    const res = await this.getTurnCredentials({ publicKey, sign })
+    if (!res.enabled || !res.iceServers) return false
+    this._rtc.setIceServers([...res.iceServers, ...DEFAULT_ICE_SERVERS])
+    // Renovar con margen antes de expirar (mínimo 30 s entre renovaciones)
+    const refreshIn = Math.max(30000, (res.expiresAt || 0) - Date.now() - 60000)
+    this._turnTimer = setTimeout(() => {
+      this._turnTimer = null
+      this.enableTurn({ publicKey, sign }).catch(() => {
+        // Sin conexión o cuota: reintento suave en 60 s; mientras tanto los
+        // peers nuevos usan los STUN por defecto.
+        this._turnTimer = setTimeout(() => {
+          this._turnTimer = null
+          this.enableTurn({ publicKey, sign }).catch(() => {})
+        }, 60000)
+      })
+    }, refreshIn)
+    return true
   }
 
   /**
@@ -569,6 +636,7 @@ export class WebSocketProxyClient {
       case 'push-scheduled':
       case 'push-canceled':
       case 'push-list':
+      case 'turn-credentials':
         this._resolvePending(data, type)
         break
       case 'error':

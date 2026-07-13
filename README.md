@@ -59,10 +59,34 @@ client.send('ABCD', { type: 'hello' })  // viaja P2P si está abierto
 ```
 
 Notas:
-- Solo se usan servidores STUN públicos. Sin TURN, los pares en NAT simétrico se quedan en proxy (es el comportamiento esperado).
+- Por defecto solo se usan servidores STUN públicos. Sin TURN, los pares en NAT simétrico se quedan en proxy; para atravesarlos activa TURN (sección siguiente).
 - La señalización (offer / answer / ICE) se transporta por el propio proxy como mensajes `__cc_rtc__`, así que no necesitas un canal extra.
 - Los handlers de `'message'` reciben un tercer argumento con `via: 'webrtc' | 'proxy'` para distinguir el transporte si lo necesitas.
 - Pasa `enableWebRTC: false` para volver al comportamiento previo (todo por proxy).
+
+## TURN temporal (0.7.0+)
+
+El proxy actúa como **administrador de credenciales TURN** (Cloudflare): la llave
+de Cloudflare vive solo en el servidor y a los clientes se les entregan
+credenciales **efímeras** (TTL corto, cuota por pubkey/hora), únicamente en
+conexiones **identificadas** con el vault. Así el relay TURN solo lo usan apps
+Dotrino y no sirve como relay abierto para tráfico ajeno.
+
+```js
+// 1) identify con el vault (igual que para la cola offline)
+await client.identify({ data, signature })
+
+// 2) activar TURN: pide credenciales, las inyecta como ICE servers y las renueva sola
+const activo = await client.enableTurn({ publicKey, sign })   // false si el proxy no tiene TURN
+
+// O manual, si quieres armar tu propio RTCPeerConnection:
+const { enabled, iceServers, expiresAt } = await client.getTurnCredentials({ publicKey, sign })
+```
+
+Notas:
+- `enableTurn()` afecta a las conexiones P2P **nuevas**; los peers ya negociados conservan su configuración.
+- Si el proxy responde `enabled: false` (sin TURN configurado), todo sigue STUN-only con fallback al proxy: no hay que hacer nada.
+- El proxy exige `identify` previo en la misma conexión: tras una reconexión, vuelve a llamar a `identify` antes de que toque renovar.
 
 ## Identidad
 

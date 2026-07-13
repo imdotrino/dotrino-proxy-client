@@ -64,6 +64,22 @@ export interface EnablePushOptions {
   swScope?: string
 }
 
+export interface TurnCredentialsOptions {
+  /** Pubkey JWK string del vault (la misma usada en identify). */
+  publicKey: string
+  /** Firma del vault (id.signData). */
+  sign: SignFn
+}
+
+export interface TurnCredentials {
+  /** false si el proxy no tiene TURN (Cloudflare) configurado. */
+  enabled: boolean
+  /** ICE servers con credenciales temporales (usuario/clave con TTL). */
+  iceServers: RTCIceServer[] | null
+  /** Epoch ms en que expiran las credenciales. */
+  expiresAt: number | null
+}
+
 export interface DisablePushOptions {
   publicKey: string
   sign: SignFn
@@ -116,6 +132,10 @@ export class WebSocketProxyClient {
   disconnectFrom (targetToken: string): Promise<any>
   sendByPubkey (toPubkeys: string | string[], payload: any): void
   identify (envelope: { data: any; signature: string }): Promise<{ publickey: string; queued_delivered: number }>
+  /** Pedir credenciales TURN temporales al proxy (requiere identify previo en esta conexión). */
+  getTurnCredentials (opts: TurnCredentialsOptions): Promise<TurnCredentials>
+  /** Activar TURN en WebRTC: inyecta las credenciales temporales y las renueva sola. */
+  enableTurn (opts: TurnCredentialsOptions): Promise<boolean>
   /** Consultar la config de Web Push del proxy. */
   getPushConfig (): Promise<PushConfig>
   /** Activar Web Push: registra el SW, crea la subscription y la registra (firmada) en el proxy. */
