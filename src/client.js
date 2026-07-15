@@ -518,7 +518,12 @@ export class WebSocketProxyClient {
       const wasConnected = this._connected
       this._connected = false
       this._emit('disconnect', { code: ev.code, reason: ev.reason })
-      if (wasConnected && this.autoReconnect && ev.code !== 1000) {
+      // Reconectar ante cualquier cierre del servidor (incluido code 1000 de un
+      // restart limpio del proxy): los cierres INTENCIONALES del cliente ya
+      // tienen autoReconnect=false (puesto por close()), así que este guard no
+      // filtra desconexiones pedidas por la app. Sin esto, un restart del proxy
+      // deja a clientes de larga duración (bots, apps abiertas) zombis para siempre.
+      if (wasConnected && this.autoReconnect) {
         this._scheduleReconnect()
       }
     })

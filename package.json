@@ -1,6 +1,6 @@
 {
   "name": "@dotrino/proxy-client",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Cliente WebSocket para el proxy de Dotrino (tokens, canales, firma ECDSA, Web Push)",
   "type": "module",
   "main": "src/index.js",
