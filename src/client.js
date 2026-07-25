@@ -237,10 +237,13 @@ export class WebSocketProxyClient {
    * (típicamente por el identity vault). Devuelve la respuesta del proxy con
    * `queued_delivered` (mensajes offline despachados al instante).
    */
-  identify ({ data, signature, cert }) {
+  identify ({ data, signature, cert, acta }) {
     if (!data || !signature) throw new Error('identify requires {data, signature}')
     const msg = { type: 'identify', data, signature }
     if (cert) msg.cert = cert // "una identidad": el proxy bindea este token también bajo tu maestra M
+    // Acta de perfil: el proxy la verifica (va firmada) y bindea también el `profileId`, así
+    // escribirle a la PERSONA llega a cualquiera de sus dispositivos. Ver acta-de-perfil.md.
+    if (acta) msg.acta = acta
     return this._request(msg, 'identified')
   }
 
