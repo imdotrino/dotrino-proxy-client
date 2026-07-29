@@ -642,6 +642,13 @@ export class WebSocketProxyClient {
         // de 4 caracteres para dictar — para eso está `requestPairingCode()`.
         this.instance = data.instance || data.token
         this.node = data.node || null
+        // Los nodos que conoce este proxio. Sirve para los descubrimientos que
+        // son de TODO el ecosistema y no tienen dueño natural (la lista pública
+        // de salas): se pregunta en cada nodo y se mezcla, en vez de designar a
+        // uno como árbitro. Son públicos: van en cada instancia y en /peers.
+        this.peers = Array.isArray(data.peers) ? data.peers : []
+        /** Este nodo + los que conoce, sin repetidos. */
+        this.knownNodes = [this.node, ...this.peers].filter((n, i, a) => n && a.indexOf(n) === i)
         this.token = this.instance
         this._emit('token', this.token)
         if (this._connectResolve) {
