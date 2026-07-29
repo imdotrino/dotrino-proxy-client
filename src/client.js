@@ -223,12 +223,57 @@ export class WebSocketProxyClient {
    * @param {string|string[]} toPubkeys publickey JWK string o array
    * @param {any} payload
    */
-  sendByPubkey (toPubkeys, payload) {
+  /**
+   * Enviar a una o varias pubkeys.
+   *
+   * `opts.ephemeral` marca el mensaje como de TIEMPO REAL: si el destinatario no
+   * está conectado en ese momento, se descarta en vez de guardarse en la cola
+   * offline de 24 h. Úsalo para lo que caduca —jugadas de una partida,
+   * señalización WebRTC, presencia—: entregar eso mañana no es tarde, es
+   * incorrecto (reinicia negociaciones imposibles y muestra movimientos fuera de
+   * contexto). NO lo uses para mensajes de chat, que sí quieren esperar.
+   */
+  sendByPubkey (toPubkeys, payload, opts = {}) {
     const list = Array.isArray(toPubkeys) ? toPubkeys : [toPubkeys]
-    this._sendRaw({
+    const msg = {
       to_publickey: list,
       message: typeof payload === 'string' ? payload : JSON.stringify(payload)
-    })
+    }
+    if (opts.ephemeral) msg.ephemeral = true
+    this._sendRaw(msg)
+  }
+
+  /**
+   * Pedir una CITA: el código corto que una persona lee, dicta o escanea para
+   * emparejarse con esta conexión.
+   *
+   * Es un código de 6 caracteres (los 2 primeros dicen qué proxio lo emitió),
+   * que **caduca en minutos y se quema al usarse**. Esa es la diferencia con el
+   * token de 4 caracteres de antes: aquel era permanente mientras durara la
+   * conexión Y era la dirección de ruteo, así que tenía que ser adivinable-seguro
+   * y corto a la vez, dos cosas incompatibles.
+   *
+   * @param {{ttlMs?:number}} [opts] vida del código (30s–30min, por defecto 5min)
+   * @returns {Promise<{code:string, expiresAt:number, node:string}>}
+   */
+  requestPairingCode (opts = {}) {
+    const msg = { type: 'pair-code' }
+    if (opts.ttlMs) msg.ttlMs = opts.ttlMs
+    return this._request(msg, 'pair-code')
+  }
+
+  /**
+   * Canjear una cita ajena: devuelve a qué conexión (y a qué identidad) apunta.
+   * Acepta el código en minúsculas y con espacios o guiones.
+   *
+   * Si el código lo emitió otro proxio, este le pregunta a ESE proxio — no a
+   * toda la malla: un pregón se lo queda el primero que conteste, y así es como
+   * un nodo hostil se mete en emparejamientos ajenos.
+   *
+   * @returns {Promise<{ok:boolean, instance?:string, publickey?:string, error?:string}>}
+   */
+  redeemPairingCode (code) {
+    return this._request({ type: 'pair-redeem', code }, 'pair-redeem')
   }
 
   /**
@@ -591,7 +636,13 @@ export class WebSocketProxyClient {
     const { type } = data
     switch (type) {
       case 'connected':
-        this.token = data.token
+        // `instance` es el identificador de esta conexión, ya cualificado por
+        // nodo: se le puede escribir desde cualquier proxio de la malla. Es el
+        // mismo valor que `token` (el nombre histórico), pero ya NO es un código
+        // de 4 caracteres para dictar — para eso está `requestPairingCode()`.
+        this.instance = data.instance || data.token
+        this.node = data.node || null
+        this.token = this.instance
         this._emit('token', this.token)
         if (this._connectResolve) {
           this._connectResolve(this.token)
