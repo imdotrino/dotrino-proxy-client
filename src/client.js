@@ -696,6 +696,8 @@ export class WebSocketProxyClient {
       case 'push-canceled':
       case 'push-list':
       case 'turn-credentials':
+      case 'pair-code':
+      case 'pair-redeem':
         this._resolvePending(data, type)
         break
       case 'error':
