@@ -2,6 +2,22 @@ import { buildSignedChannel, getPublicKeyJwk, signData } from './signature.js'
 import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS } from './webrtc.js'
 
 /**
+ * Error con un `code` estable.
+ *
+ * El contrato es el CODE, no la frase: comprobar por el texto cruza procesos y
+ * se rompe en silencio en cuanto alguien lo reescribe o lo traduce.
+ *
+ * @param {string} mensaje
+ * @param {string} code
+ * @returns {Error & { code: string }}
+ */
+function errorCon (mensaje, code) {
+  const e = /** @type {Error & { code: string }} */ (new Error(mensaje))
+  e.code = code
+  return e
+}
+
+/**
  * Dotrino WebSocket proxy client.
  * Minimal API: connection + token + messages + channels (publish/list/count/disconnect)
  * with ECDSA P-256 signed envelopes.
@@ -83,6 +99,22 @@ export class WebSocketProxyClient {
     if (this._rtc) this._rtc.closeAll()
     if (this.ws) {
       try { this.ws.close(1000) } catch (_) {}
+    }
+    // Cerrar es una decisión de la app: lo que estuviera en vuelo ya no va a
+    // llegar (`close()` apaga autoReconnect, y una reconexión tampoco reenvía
+    // las peticiones pendientes). Sin esto, quien esperaba un `publish` se comía
+    // los 10 s completos del timeout para enterarse de algo que ya se sabía, y
+    // el temporizador mantenía vivo el proceso en Node ese rato.
+    this._rejectAllPending(errorCon('Connection closed', 'CONNECTION_CLOSED'))
+  }
+
+  /** Corta en seco todo lo que esperaba respuesta, con su motivo. */
+  _rejectAllPending (error) {
+    const pendientes = [...this._pending.values()]
+    this._pending.clear()
+    for (const entry of pendientes) {
+      clearTimeout(entry.timer)
+      entry.reject(error)
     }
   }
 
@@ -738,7 +770,7 @@ export class WebSocketProxyClient {
 
   _sendRaw (frame) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket not connected')
+      throw errorCon('WebSocket not connected', 'NOT_CONNECTED')
     }
     this.ws.send(JSON.stringify(frame))
   }
@@ -749,7 +781,7 @@ export class WebSocketProxyClient {
       const out = { ...frame, id }
       const timer = setTimeout(() => {
         this._pending.delete(id)
-        reject(new Error(`Timeout waiting for ${expectedType}`))
+        reject(errorCon(`Timeout waiting for ${expectedType}`, 'REQUEST_TIMEOUT'))
       }, 10000)
       this._pending.set(id, { resolve, reject, timer, expectedType, channelKey })
       try {

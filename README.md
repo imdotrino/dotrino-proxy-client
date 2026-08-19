@@ -215,11 +215,34 @@ Notas:
 | `reconnect_failed`  | `(attempts)`                     |
 | `abuse_notice`      | `({ from, operation, severity, timestamp })` — el proxy avisa que `from` está enviando demasiado. Las apps pueden penalizar el ranking de ese token. |
 
+## Errores: comprueba por `code`, nunca por la frase
+
+Cuando una petición falla, el `Error` trae un **`code` estable**. Empareja por
+ahí: el texto es para leerlo un humano y puede cambiar o traducirse, y una
+comprobación por frase se rompe **en silencio** el día que eso pase.
+
+| `code` | Cuándo |
+|---|---|
+| `NOT_CONNECTED` | se pidió algo sin conexión abierta |
+| `CONNECTION_CLOSED` | se llamó a `close()` con peticiones en vuelo: se cortan en el acto en vez de esperar el timeout |
+| `REQUEST_TIMEOUT` | el proxy no contestó en 10 s |
+
+```js
+try {
+  await client.publish('sala')
+} catch (e) {
+  if (e.code === 'NOT_CONNECTED') reconectar()
+  else if (e.code !== 'CONNECTION_CLOSED') mostrarError(e)   // cerrar fue decisión nuestra
+}
+```
+
 ## Diseño
 
 - Sin heartbeat ni polling de respaldo: cada app decide su política.
 - Reconexión simple con backoff fijo (configurable).
-- Las operaciones de canal devuelven `Promise` (timeout 10s).
+- Las operaciones de canal devuelven `Promise` (timeout 10 s). `close()` las
+  rechaza en el acto (`CONNECTION_CLOSED`): lo que estaba en vuelo ya no va a
+  llegar, y esperar el timeout completo solo retrasa la mala noticia.
 - La firma usa JSON canónico (claves ordenadas) para que el proxy verifique con la misma representación.
 
 ## Publicación (npm)

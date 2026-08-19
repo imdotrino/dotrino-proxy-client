@@ -1,6 +1,6 @@
 {
   "name": "@dotrino/proxy-client",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Cliente WebSocket para el proxy de Dotrino (tokens, canales, firma ECDSA, Web Push)",
   "type": "module",
   "main": "src/index.js",
@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test \"test/*.test.mjs\"",
     "type-check": "tsc --noEmit"
   },
   "keywords": [
