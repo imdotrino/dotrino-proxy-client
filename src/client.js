@@ -462,6 +462,20 @@ export class WebSocketProxyClient {
   }
 
   /**
+   * Registrar el TOKEN DE PUSH de una app nativa (FCM en Android; APNs más adelante) bajo
+   * esta pubkey, en vez de una PushSubscription del navegador. El proxy lo usa para el
+   * mismo timbre sin contenido. Firma del vault, igual que enablePush.
+   * @param {{ publicKey:string, sign:Function, token:string, kind?:'fcm' }} opts
+   */
+  async registerPushToken ({ publicKey, sign, token, kind = 'fcm' } = {}) {
+    if (!publicKey || typeof sign !== 'function' || !token) throw new Error('registerPushToken requires { publicKey, sign, token }')
+    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify({ kind, token }), ts: Date.now() }
+    const signature = await normalizeSignature(sign, data)
+    await this._request({ type: 'push-subscribe', data, signature }, 'push-subscribed')
+    return { kind, token }
+  }
+
+  /**
    * Desactivar Web Push: cancela la PushSubscription local y la borra del proxy.
    * @param {Object} opts
    * @param {string} opts.publicKey  Pubkey JWK string del vault.
