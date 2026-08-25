@@ -96,8 +96,20 @@ Cada navegador genera y persiste un par ECDSA P-256 en `localStorage` (`dotrino.
 
 ```js
 import { setKeypairStore } from '@dotrino/proxy-client'
+
+// Un almacén que guarda el CryptoKey tal cual (IndexedDB): la privada se queda
+// no extraíble.
 setKeypairStore({ get: async () => saved, set: async (pair) => { saved = pair } })
+
+// Un almacén que SERIALIZA (disco, texto, red) tiene que exportar la privada a JWK,
+// y eso no se puede con una llave no extraíble. Hay que declararlo:
+setKeypairStore(storeDeDisco, { extractable: true })
 ```
+
+Si el almacén no puede guardar, el cliente lo **dice por consola** en vez de seguir en
+silencio: sin persistencia la identidad se regenera en cada arranque y los peers que
+conocen el aparato por su pubkey dejan de reconocerlo — un fallo que, callado, se
+descubre días después y desde el otro lado.
 
 ```js
 const pubkeyJwk = await client.getPublicKey()

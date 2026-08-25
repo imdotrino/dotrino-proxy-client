@@ -109,3 +109,53 @@ test('sin localStorage, la privada NO sale del almacén como JWK', async () => {
 
   setKeypairStore(null)
 })
+
+test('un almacén que serializa necesita { extractable: true }, y si no se dice', async () => {
+  const { getPublicKeyJwk, setKeypairStore } = await import('../src/signature.js')
+
+  // Un almacén de disco: exporta la privada a JWK, como hace cualquier persistencia
+  // que no sea IndexedDB.
+  let guardado = null
+  const storeDeDisco = {
+    async get () { return guardado },
+    async set ({ privateKey, publicKey, publicJwk }) {
+      guardado = {
+        privateJwk: await crypto.subtle.exportKey('jwk', privateKey),
+        publicJwk: publicJwk || await crypto.subtle.exportKey('jwk', publicKey),
+      }
+    },
+  }
+
+  // Sin declararlo, no puede guardar — y tiene que DECIRLO, no callarse: si se
+  // callara, la identidad cambiaría en cada arranque y se descubriría días después.
+  const errores = []
+  const origen = console.error
+  console.error = (...a) => errores.push(a.join(' '))
+  setKeypairStore(storeDeDisco)
+  await getPublicKeyJwk()
+  console.error = origen
+
+  assert.equal(guardado, null, 'no debería haber podido guardar')
+  assert.ok(errores.some(e => /could not persist/.test(e)), 'falló en silencio')
+  assert.ok(errores.some(e => /extractable/.test(e)), 'no dice cómo arreglarlo')
+
+  // Declarándolo, guarda y la identidad sobrevive al reinicio.
+  setKeypairStore(storeDeDisco, { extractable: true })
+  const primera = await getPublicKeyJwk()
+  assert.ok(guardado, 'sigue sin guardar')
+
+  setKeypairStore({
+    async get () {
+      const alg = { name: 'ECDSA', namedCurve: 'P-256' }
+      return {
+        privateKey: await crypto.subtle.importKey('jwk', guardado.privateJwk, alg, true, ['sign']),
+        publicKey: await crypto.subtle.importKey('jwk', guardado.publicJwk, alg, true, ['verify']),
+        publicJwk: guardado.publicJwk,
+      }
+    },
+    async set () {},
+  }, { extractable: true })
+  assert.equal(await getPublicKeyJwk(), primera, 'la identidad no sobrevivió al reinicio')
+
+  setKeypairStore(null)
+})

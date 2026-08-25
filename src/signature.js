@@ -19,14 +19,21 @@ const DB_STORE = 'keypair'
 
 let cachedKeypair = null
 let injectedStore = null
+let injectedExtractable = false
 
 /**
  * Override where the keypair is kept. Takes `{ get(), set(pair) }` handling
  * `{ privateKey, publicKey, publicJwk }`. Rarely needed: the defaults already cover
  * pages (localStorage) and workers (IndexedDB).
+ *
+ * `extractable` matters: a store that keeps CryptoKeys as-is (IndexedDB) does not
+ * need it and is safer without, but a store that serializes to disk or to text has
+ * to export the private key as a JWK, and that throws on a non-extractable key. Pass
+ * `{ extractable: true }` for those.
  */
-export function setKeypairStore (store) {
+export function setKeypairStore (store, { extractable = false } = {}) {
   injectedStore = store
+  injectedExtractable = !!extractable
   cachedKeypair = null
 }
 
@@ -86,15 +93,26 @@ async function loadOrCreate () {
       // unreadable entry, regenerate below
     }
 
-    // Non-extractable: nothing here ever needs to export the private key, and a
-    // CryptoKey survives structured clone, so it never has to leave as a JWK.
+    // Non-extractable by default: nothing here needs to export the private key, and
+    // a CryptoKey survives structured clone, so with IndexedDB it never has to leave
+    // as a JWK. A store that serializes has to opt in via `setKeypairStore`.
+    const extractable = store === indexedDbStore ? false : injectedExtractable
     const pair = await crypto.subtle.generateKey(
       { name: 'ECDSA', namedCurve: 'P-256' },
-      false, ['sign', 'verify']
+      extractable, ['sign', 'verify']
     )
     const publicJwk = await crypto.subtle.exportKey('jwk', pair.publicKey)
     const entry = { privateKey: pair.privateKey, publicKey: pair.publicKey, publicJwk }
-    try { await store.set(entry) } catch (e) { /* keep going in memory */ }
+    try {
+      await store.set(entry)
+    } catch (e) {
+      // Loud on purpose. If this fails the identity is regenerated on every start,
+      // and every peer that knows this device by its public key stops recognising
+      // it — the exact failure this whole path exists to prevent. A silent catch
+      // here means finding out days later, from the other side.
+      console.error('[proxy-client] could not persist the keypair: %s', e?.message || e)
+      console.error('[proxy-client] identity will NOT survive a restart. If the store serializes, pass { extractable: true } to setKeypairStore.')
+    }
     cachedKeypair = entry
     return cachedKeypair
   }
