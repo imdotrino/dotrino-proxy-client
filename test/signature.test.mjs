@@ -66,3 +66,46 @@ test('la misma llave entre llamadas (se persiste, no se regenera)', async () => 
 test('firmar dos datos distintos da firmas distintas', async () => {
   assert.notEqual(await signData({ a: 1 }), await signData({ a: 2 }))
 })
+
+// --- Persistencia fuera de una página (service worker) ------------------------
+//
+// Sin localStorage la identidad se regeneraba en cada llamada y no se guardaba: en un
+// service worker, que se duerme constantemente, el aparato cambiaba de llave todo el
+// rato y cualquier peer que lo conociera por su pubkey veía un desconocido.
+
+test('sin localStorage, la identidad PERSISTE en el almacén inyectado', async () => {
+  const { getPublicKeyJwk, setKeypairStore } = await import('../src/signature.js')
+
+  let guardado = null
+  const store = {
+    async get () { return guardado },
+    async set (pair) { guardado = pair },
+  }
+
+  setKeypairStore(store)
+  const primera = await getPublicKeyJwk()
+  assert.ok(guardado, 'no guardó nada')
+
+  // Segundo arranque: el worker despertó y la caché en memoria se perdió.
+  setKeypairStore(store)
+  const segunda = await getPublicKeyJwk()
+  assert.equal(segunda, primera, 'la llave cambió entre arranques')
+})
+
+test('sin localStorage, la privada NO sale del almacén como JWK', async () => {
+  const { getPublicKeyJwk, signData, setKeypairStore } = await import('../src/signature.js')
+
+  let guardado = null
+  setKeypairStore({ async get () { return guardado }, async set (p) { guardado = p } })
+  await getPublicKeyJwk()
+
+  assert.equal(guardado.privateKey.extractable, false)
+  assert.equal(guardado.privateKey.type, 'private')
+  await assert.rejects(() => crypto.subtle.exportKey('jwk', guardado.privateKey))
+
+  // Y aun así firma, que es para lo único que se necesita.
+  const signature = await signData({ op: 'test', ts: 1 })
+  assert.ok(typeof signature === 'string' && signature.length > 0)
+
+  setKeypairStore(null)
+})

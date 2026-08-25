@@ -92,6 +92,13 @@ Notas:
 
 Cada navegador genera y persiste un par ECDSA P-256 en `localStorage` (`dotrino.proxy-client.keypair`). La pública se incluye en cada operación de canal y sirve como identidad estable entre sesiones (no entre apps con orígenes distintos — para eso usa la librería de identidad).
 
+**En un service worker (0.12.0+)** no hay `localStorage`, y hasta la 0.11.0 eso significaba que el par se regeneraba en cada llamada **sin guardarse**: el aparato cambiaba de identidad cada vez que el worker se dormía, y cualquier peer que lo conociera por su pubkey veía un desconocido. Ahora cae solo a **IndexedDB**, que sí existe en workers y guarda el `CryptoKey` tal cual — así la privada se queda **no extraíble** en vez de escribirse como JWK. No hay que configurar nada. Si necesitas otro almacén:
+
+```js
+import { setKeypairStore } from '@dotrino/proxy-client'
+setKeypairStore({ get: async () => saved, set: async (pair) => { saved = pair } })
+```
+
 ```js
 const pubkeyJwk = await client.getPublicKey()
 const signature = await client.sign({ msg: 'hola' })

@@ -1,15 +1,103 @@
 /**
- * ECDSA P-256 keypair management using SubtleCrypto, persisted in localStorage as JWK.
+ * ECDSA P-256 keypair management using SubtleCrypto.
+ *
+ * Persisted in localStorage as JWK where it exists. Where it does NOT — a service
+ * worker, which is where a browser extension keeps its background logic — the pair
+ * used to be regenerated on every call and never stored, so the identity changed
+ * every time the worker went to sleep. Any peer that knows a device by its public
+ * key would see a stranger each time. IndexedDB is the fallback there: it is
+ * available in workers, and it can store the CryptoKey itself, so the private key
+ * stays non-extractable instead of being written out as a JWK.
+ *
  * Public key in JWK form is what the proxy expects in `channel.data.publickey`.
  */
 import { canonicalStringify } from './canonical.js'
 
 const STORAGE_KEY = 'dotrino.proxy-client.keypair'
+const DB_NAME = 'dotrino.proxy-client'
+const DB_STORE = 'keypair'
 
 let cachedKeypair = null
+let injectedStore = null
+
+/**
+ * Override where the keypair is kept. Takes `{ get(), set(pair) }` handling
+ * `{ privateKey, publicKey, publicJwk }`. Rarely needed: the defaults already cover
+ * pages (localStorage) and workers (IndexedDB).
+ */
+export function setKeypairStore (store) {
+  injectedStore = store
+  cachedKeypair = null
+}
+
+function idb () {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1)
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(DB_STORE)) req.result.createObjectStore(DB_STORE)
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+function idbRequest (db, mode, fn) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, mode)
+    const req = fn(tx.objectStore(DB_STORE))
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+const indexedDbStore = {
+  async get () {
+    const db = await idb()
+    try { return await idbRequest(db, 'readonly', s => s.get(STORAGE_KEY)) } finally { db.close() }
+  },
+  async set (pair) {
+    const db = await idb()
+    try { await idbRequest(db, 'readwrite', s => s.put(pair, STORAGE_KEY)) } finally { db.close() }
+  },
+}
+
+function fallbackStore () {
+  if (injectedStore) return injectedStore
+  if (typeof localStorage === 'undefined' && typeof indexedDB !== 'undefined') return indexedDbStore
+  return null
+}
 
 async function loadOrCreate () {
   if (cachedKeypair) return cachedKeypair
+
+  const store = fallbackStore()
+  if (store) {
+    try {
+      const saved = await store.get()
+      if (saved?.privateKey && saved?.publicKey) {
+        cachedKeypair = {
+          privateKey: saved.privateKey,
+          publicKey: saved.publicKey,
+          publicJwk: saved.publicJwk || await crypto.subtle.exportKey('jwk', saved.publicKey),
+        }
+        return cachedKeypair
+      }
+    } catch (e) {
+      // unreadable entry, regenerate below
+    }
+
+    // Non-extractable: nothing here ever needs to export the private key, and a
+    // CryptoKey survives structured clone, so it never has to leave as a JWK.
+    const pair = await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false, ['sign', 'verify']
+    )
+    const publicJwk = await crypto.subtle.exportKey('jwk', pair.publicKey)
+    const entry = { privateKey: pair.privateKey, publicKey: pair.publicKey, publicJwk }
+    try { await store.set(entry) } catch (e) { /* keep going in memory */ }
+    cachedKeypair = entry
+    return cachedKeypair
+  }
 
   if (typeof localStorage !== 'undefined') {
     const raw = localStorage.getItem(STORAGE_KEY)
