@@ -88,6 +88,45 @@ Notas:
 - Si el proxy responde `enabled: false` (sin TURN configurado), todo sigue STUN-only con fallback al proxy: no hay que hacer nada.
 - El proxy exige `identify` previo en la misma conexión: tras una reconexión, vuelve a llamar a `identify` antes de que toque renovar.
 
+## Cifrado extremo a extremo de mensajes dirigidos (0.13.0+)
+
+**El proxy no cifra el contenido.** `sendByPubkey` enruta por pubkey y manda el
+payload tal cual, así que cualquier cosa sensible que viaje así la puede leer quien
+opere el proxy. Los canales públicos son públicos por diseño y esto no les aplica;
+los mensajes **dirigidos** sí deberían ir sellados.
+
+```js
+import { makeEncKeypair } from '@dotrino/proxy-client'
+
+// Un par de CIFRADO, aparte del de firma. Su pública se intercambia al emparejar.
+const mio = await makeEncKeypair()          // { privateKey, encPub }
+
+const client = new WebSocketProxyClient({
+  url: 'wss://proxy.dotrino.com',
+  requireSealed: true,                       // nada en claro, ni al enviar ni al recibir
+  myEncPrivateKey: mio.privateKey,           // para abrir lo que me sellen
+})
+
+await client.sendSealed(['<pubkey-del-peer>'], { op: 'hola' }, { peerEncPub })
+```
+
+Con `requireSealed: true`:
+
+- `sendByPubkey()` con un payload sin sellar **lanza** (`code: 'unsealed'`) en vez de
+  enviarlo. Se usa `sendSealed()`.
+- Lo que **llega** en claro se descarta y se emite `error` con `{ type: 'unsealed' }`.
+  Sellar solo de salida no basta: si la otra punta acepta texto plano, mandarlo así
+  se salta el sellado entero, y alguien que nunca leyó nada podría colar un payload
+  falso en la app.
+- Lo sellado a otro emite `{ type: 'undecipherable' }` y no llega a la app.
+- Los `message` que sí llegan traen `meta.sealed`.
+
+**Está apagado por defecto** para no romper las apps existentes, pero es lo que debería
+tener cualquier app que mande algo del usuario. La criptografía es la de
+`@dotrino/identity/content` (la misma de los secretos sellados del vault), declarada
+como **peer dependency**: empaquetarla aquí colaría una copia vieja del pilar en cada
+consumidor.
+
 ## Identidad
 
 Cada navegador genera y persiste un par ECDSA P-256 en `localStorage` (`dotrino.proxy-client.keypair`). La pública se incluye en cada operación de canal y sirve como identidad estable entre sesiones (no entre apps con orígenes distintos — para eso usa la librería de identidad).

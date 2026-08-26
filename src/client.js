@@ -1,4 +1,5 @@
 import { buildSignedChannel, getPublicKeyJwk, signData } from './signature.js'
+import { seal, open, isSealed } from './sealing.js'
 import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS } from './webrtc.js'
 
 /**
@@ -43,6 +44,20 @@ export class WebSocketProxyClient {
     this.enableWebRTC = options.enableWebRTC !== false
     this.iceServers = options.iceServers || null
 
+    /**
+     * Refuse to send or accept directed messages in the clear.
+     *
+     * The proxy does not encrypt payloads, so anything sensitive sent with
+     * `sendByPubkey` is readable by whoever runs the proxy. With this on:
+     *   · `sendSealed()` is the only way out — plain `sendByPubkey` throws
+     *   · unsealed directed messages are dropped and reported as 'unsealed'
+     *
+     * Off by default so existing apps keep working; public channels are unaffected
+     * either way, since they are public by design.
+     */
+    this.requireSealed = options.requireSealed === true
+    this.myEncPrivateKey = options.myEncPrivateKey || null
+
     // Heartbeat de aplicación: el WebSocket del browser NO expone ping/pong de
     // protocolo, así que mandamos `{type:'ping'}` y esperamos cualquier tráfico
     // de vuelta (el server responde `pong`). Si no hay respuesta en
@@ -67,7 +82,7 @@ export class WebSocketProxyClient {
     this._rtc = this.enableWebRTC ? new WebRTCManager({
       getSelfToken: () => this.token,
       signalSend: (to, payload) => this._proxySendOne(to, payload),
-      deliverMessage: (from, parsed, meta) => this._emit('message', from, parsed, meta),
+      deliverMessage: (from, parsed, meta) => this._deliver(from, parsed, meta),
       emit: (event, ...args) => this._emit(event, ...args),
       config: this.iceServers ? { iceServers: this.iceServers } : null
     }) : null
@@ -265,7 +280,57 @@ export class WebSocketProxyClient {
    * incorrecto (reinicia negociaciones imposibles y muestra movimientos fuera de
    * contexto). NO lo uses para mensajes de chat, que sí quieren esperar.
    */
+  /**
+   * Seal a payload towards a peer's encryption key and send it. This is what an app
+   * should use for anything that is not meant for the proxy's eyes.
+   */
+  async sendSealed (toPubkeys, payload, { peerEncPub, ...opts } = {}) {
+    if (!peerEncPub) throw Object.assign(new Error('sendSealed: missing peerEncPub'), { code: 'unsealed' })
+    this._sendByPubkeyRaw(toPubkeys, await seal(payload, peerEncPub), opts)
+  }
+
   sendByPubkey (toPubkeys, payload, opts = {}) {
+    if (this.requireSealed && !isSealed(payload)) {
+      throw Object.assign(
+        new Error('requireSealed: refusing to send a directed message in the clear — use sendSealed()'),
+        { code: 'unsealed' })
+    }
+    this._sendByPubkeyRaw(toPubkeys, payload, opts)
+  }
+
+  /**
+   * Hands a message to the app, opening it first when it is sealed.
+   *
+   * With `requireSealed`, anything that arrives in the clear is DROPPED and reported
+   * as `{ type: 'unsealed' }`. Sealing on the way out is not enough on its own: if the
+   * receiving end still accepts plaintext, sending it that way bypasses the sealing
+   * entirely — and a peer that never read anything could still push a forged payload
+   * into the app.
+   */
+  async _deliver (from, payload, meta) {
+    if (isSealed(payload)) {
+      if (!this.myEncPrivateKey) {
+        this._emit('error', { type: 'unsealed', reason: 'no_encryption_key', from })
+        return
+      }
+      try {
+        const opened = await open(payload, this.myEncPrivateKey)
+        this._emit('message', from, opened, { ...meta, sealed: true })
+      } catch (e) {
+        // Sealed to somebody else, or tampered with. Staying quiet is the point.
+        this._emit('error', { type: 'undecipherable', from, error: e })
+      }
+      return
+    }
+
+    if (this.requireSealed) {
+      this._emit('error', { type: 'unsealed', reason: 'plaintext_rejected', from })
+      return
+    }
+    this._emit('message', from, payload, { ...meta, sealed: false })
+  }
+
+  _sendByPubkeyRaw (toPubkeys, payload, opts = {}) {
     const list = Array.isArray(toPubkeys) ? toPubkeys : [toPubkeys]
     const msg = {
       to_publickey: list,
@@ -713,7 +778,7 @@ export class WebSocketProxyClient {
           this._rtc.handleIncoming(from, parsed)
           break
         }
-        this._emit('message', from, parsed ?? message, {
+        this._deliver(from, parsed ?? message, {
           raw: message, timestamp, via: 'proxy',
           fromPubkey: from_publickey || null,
           queued: !!queued,
