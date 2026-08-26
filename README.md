@@ -323,3 +323,10 @@ cp node_modules/@dotrino/proxy-client/sw/dotrino-push-sw.js public/
 ## Licencia
 
 MIT
+
+## Deuda conocida
+
+`test/protocol.test.mjs` tiene **tests intermitentes**: esperan frames con un timeout de
+10 s y, con la máquina cargada, fallan ~1 de cada 5 pasadas (`list devuelve los tokens`,
+`dos peticiones a la vez`). No es una regresión — falla igual en cualquier commit — pero
+un test que a veces pasa enseña a ignorar el rojo, que es peor que no tenerlo.

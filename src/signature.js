@@ -68,9 +68,27 @@ const indexedDbStore = {
   },
 }
 
+/**
+ * Is there a WORKING localStorage? Not "is it defined" — Node >= 22 exposes one that
+ * throws unless started with `--localstorage-file`, so checking for existence alone
+ * sends the keypair down a path that fails. Anything headless without a shim would
+ * crash instead of quietly falling back.
+ */
+function localStorageWorks () {
+  try {
+    if (typeof localStorage === 'undefined') return false
+    const probe = STORAGE_KEY + '.probe'
+    localStorage.setItem(probe, '1')
+    localStorage.removeItem(probe)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
 function fallbackStore () {
   if (injectedStore) return injectedStore
-  if (typeof localStorage === 'undefined' && typeof indexedDB !== 'undefined') return indexedDbStore
+  if (!localStorageWorks() && typeof indexedDB !== 'undefined') return indexedDbStore
   return null
 }
 
@@ -117,7 +135,7 @@ async function loadOrCreate () {
     return cachedKeypair
   }
 
-  if (typeof localStorage !== 'undefined') {
+  if (localStorageWorks()) {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       try {
@@ -146,7 +164,7 @@ async function loadOrCreate () {
   )
   const privateJwk = await crypto.subtle.exportKey('jwk', pair.privateKey)
   const publicJwk = await crypto.subtle.exportKey('jwk', pair.publicKey)
-  if (typeof localStorage !== 'undefined') {
+  if (localStorageWorks()) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ privateJwk, publicJwk }))
   }
   cachedKeypair = { privateKey: pair.privateKey, publicKey: pair.publicKey, publicJwk }

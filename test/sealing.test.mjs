@@ -173,3 +173,34 @@ test('el singleton no pierde la exigencia: updateConfig la aplica, y no la apaga
   getWebSocketProxyClient({ requireSealed: false })
   assert.equal(primero.requireSealed, true, 'se pudo apagar la exigencia en caliente')
 })
+
+test('un localStorage que EXISTE pero no funciona no rompe la identidad', async () => {
+  const { getPublicKeyJwk, setKeypairStore } = await import('../src/signature.js')
+
+  // Node >= 22 expone un localStorage que lanza sin `--localstorage-file`. Comprobar
+  // solo que esté definido mandaba la llave por ese camino y reventaba: cualquier app
+  // headless sin shim se caía en vez de caer al respaldo.
+  // `localStorage` es de solo lectura en globalThis: se redefine con la descriptora.
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem () { throw new Error('no localstorage file') },
+      setItem () { throw new Error('no localstorage file') },
+      removeItem () { throw new Error('no localstorage file') },
+    },
+  })
+
+  let guardado = null
+  setKeypairStore({ async get () { return guardado }, async set (p) { guardado = p } })
+
+  try {
+    const jwk = JSON.parse(await getPublicKeyJwk())
+    assert.equal(jwk.crv, 'P-256')
+    assert.ok(guardado, 'no usó el respaldo')
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original)
+    else delete globalThis.localStorage
+    setKeypairStore(null)
+  }
+})
