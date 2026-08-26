@@ -112,3 +112,64 @@ test('sin requireSealed nada cambia: las apps de hoy siguen funcionando', async 
   assert.deepEqual(recibidos[0].p, { hola: 2 })
   assert.equal(recibidos[0].meta.sealed, false)
 })
+
+// --- El otro mundo: la app de navegador no tiene la llave ---------------------
+//
+// En una app web la privada de cifrado vive en el VAULT, no en la app: se delega en
+// `identity.encrypt`/`identity.decrypt`. Sin esto, `requireSealed` solo servía para
+// aparatos headless — es decir, para casi ninguna app del ecosistema.
+
+test('sellado delegado: la app no toca ninguna llave', async () => {
+  const bovedaFalsa = {
+    async encrypt (destinatarios, texto) { return { v: 9, wrap: 'x', ct: btoa(texto) } },
+    async decrypt (env) { return atob(env.ct) },
+  }
+  const sealing = {
+    async seal (msg, peerEncPub) { return bovedaFalsa.encrypt([peerEncPub], JSON.stringify(msg)) },
+    async open (env) { return JSON.parse(await bovedaFalsa.decrypt(env)) },
+    isSealed (m) { return m?.v === 9 && !!m.ct },
+  }
+
+  const c = clienteFalso({ requireSealed: true, sealing })
+  const recibidos = []
+  const errores = []
+  c.on('message', (f, p, meta) => recibidos.push({ p, sealed: meta.sealed }))
+  c.on('error', e => errores.push(e))
+
+  await c.sendSealed(['PEER'], { secreto: 'hunter2' }, { peerEncPub: 'PEER-ENC' })
+  assert.ok(!JSON.stringify(c._enviado).includes('hunter2'), 'salió en claro')
+
+  // Lo que llega en ese formato se abre; lo que llega en claro sigue rechazándose.
+  await c._deliver('PEER', JSON.parse(c._enviado.message), {})
+  assert.deepEqual(recibidos[0].p, { secreto: 'hunter2' })
+  assert.equal(recibidos[0].sealed, true)
+
+  await c._deliver('PEER', { hola: 'en claro' }, {})
+  assert.equal(recibidos.length, 1, 'coló un mensaje sin cifrar')
+  assert.equal(errores.at(-1)?.reason, 'plaintext_rejected')
+})
+
+test('sellado delegado: enviar en claro sigue estando prohibido', async () => {
+  const sealing = { async seal (m) { return { v: 9, ct: 'x' } }, async open () { return {} }, isSealed: m => m?.v === 9 }
+  const c = clienteFalso({ requireSealed: true, sealing })
+  assert.throws(() => c.sendByPubkey(['PEER'], { hola: 1 }), e => e.code === 'unsealed')
+})
+
+test('el singleton no pierde la exigencia: updateConfig la aplica, y no la apaga', async () => {
+  const { getWebSocketProxyClient } = await import('../src/index.js')
+
+  // Primer módulo de la app: pide el cliente sin decir nada de sellado.
+  const primero = getWebSocketProxyClient({ url: 'wss://x', enableWebRTC: false })
+  assert.equal(primero.requireSealed, false)
+
+  // Segundo módulo: el que sí sabe que esto lleva datos del usuario.
+  const sealing = { async seal () { return { v: 9, ct: 'x' } }, async open () { return {} }, isSealed: m => m?.v === 9 }
+  const segundo = getWebSocketProxyClient({ requireSealed: true, sealing })
+  assert.equal(segundo, primero, 'no es el mismo singleton: el test no prueba nada')
+  assert.equal(segundo.requireSealed, true, 'la exigencia se perdió en silencio')
+  assert.equal(segundo.sealing, sealing)
+
+  // Y no se puede bajar después.
+  getWebSocketProxyClient({ requireSealed: false })
+  assert.equal(primero.requireSealed, true, 'se pudo apagar la exigencia en caliente')
+})
