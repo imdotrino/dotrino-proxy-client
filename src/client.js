@@ -105,6 +105,13 @@ export class WebSocketProxyClient {
       },
       config: this.iceServers ? { iceServers: this.iceServers } : null
     }) : null
+    // QUIÉN PUEDE HACERTE NEGOCIAR UN CANAL DIRECTO. Sin política, cualquiera que sepa
+    // alcanzarte por el proxio — y negociar arranca DTLS/ICE/SCTP, o sea código que parsea
+    // red no confiable. En un navegador se vive con ello; en un proceso que guarda llaves,
+    // no. Quien monta el cliente lo acota (`acceptDirectFrom`).
+    if (this._rtc && typeof options.acceptDirectFrom === 'function') {
+      this._rtc.acceptFrom = options.acceptDirectFrom
+    }
   }
 
   // ---------- public API ----------

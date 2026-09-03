@@ -78,6 +78,7 @@ export class WebRTCManager {
    * @param {{iceServers?: any[]}} [opts.config]
    */
   constructor (opts) {
+    this.acceptFrom = null   // ver `handleIncoming`: lo pone quien monta el cliente
     this.getSelfToken = opts.getSelfToken
     this.signalSend = opts.signalSend
     this.deliverMessage = opts.deliverMessage
@@ -90,8 +91,19 @@ export class WebRTCManager {
    * True if this is a control envelope and was consumed.
    * Otherwise the caller should keep delivering it normally.
    */
+  /**
+   * QUIÉN PUEDE HACERTE NEGOCIAR. Antes: cualquiera que supiera alcanzarte por el proxio.
+   *
+   * Aceptar una señal arranca DTLS, ICE y SCTP — código que parsea red no confiable— así
+   * que quien decide si eso corre no puede ser el que llama a la puerta. En un navegador
+   * eso ya era así y se vivía con ello; en la bóveda es el proceso que tiene la maestra.
+   *
+   * `acceptFrom` lo decide quien monta el cliente: la bóveda solo acepta a MIEMBROS DE SU
+   * ACTA. Sin política se mantiene lo de antes, para no romper a quien ya dependía de ello.
+   */
   handleIncoming (from, parsed) {
     if (!parsed || typeof parsed !== 'object' || parsed.t !== RTC_TAG) return false
+    if (this.acceptFrom && !this.acceptFrom(from)) return false
     const peer = this._ensurePeer(from)
     this._handleSignal(peer, parsed).catch((e) => {
       this.emit('error', { type: 'webrtc_signal', error: e, peer: from })

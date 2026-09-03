@@ -74,3 +74,44 @@ test('si el canal se cae, se vuelve a intentar: el intento único no es una cond
   await new Promise((r) => setImmediate(r))
   assert.equal(intentos.length, 2, 'una desconexión no puede dejarlo en el proxio para siempre')
 })
+
+/**
+ * QUIÉN PUEDE HACERTE NEGOCIAR UN CANAL DIRECTO.
+ *
+ * Aceptar una señal arranca DTLS, ICE y SCTP: código que parsea red NO CONFIABLE. Antes lo
+ * podía disparar cualquiera que supiera alcanzarte por el proxio, sin conocerte de nada. En
+ * un navegador se vivía con ello; en un proceso que guarda llaves, no.
+ *
+ * Quien monta el cliente decide (`acceptDirectFrom`). La bóveda solo acepta a miembros de
+ * su acta, y **sin acta no acepta a nadie**: en la duda no se arranca a parsear.
+ */
+import { WebRTCManager, RTC_TAG } from '../src/webrtc.js'
+
+const manager = (acceptFrom) => {
+  const m = new WebRTCManager({
+    getSelfToken: () => 'yo',
+    signalSend: () => {},
+    deliverMessage: () => {},
+    emit: () => {}
+  })
+  m.acceptFrom = acceptFrom
+  return m
+}
+
+test('sin política se acepta a cualquiera: es lo de antes, y no se rompe a quien dependía', () => {
+  const m = manager(null)
+  assert.equal(m.handleIncoming('desconocido', { t: RTC_TAG, kind: 'offer' }), true)
+})
+
+test('con política, un desconocido NO hace arrancar la negociación', () => {
+  const conocidos = new Set(['un-miembro'])
+  const m = manager((from) => conocidos.has(from))
+  assert.equal(m.handleIncoming('desconocido', { t: RTC_TAG, kind: 'offer' }), false,
+    'nadie que no esté en el acta puede hacerte parsear su DTLS')
+  assert.equal(m.handleIncoming('un-miembro', { t: RTC_TAG, kind: 'offer' }), true)
+})
+
+test('una política que dice que no a todo deja el proxio como único camino, sin romper nada', () => {
+  const m = manager(() => false)
+  assert.equal(m.handleIncoming('quien-sea', { t: RTC_TAG, kind: 'offer' }), false)
+})
