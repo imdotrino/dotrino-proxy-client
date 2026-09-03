@@ -1,6 +1,6 @@
 import { buildSignedChannel, getPublicKeyJwk, signData } from './signature.js'
 import { seal, open, isSealed } from './sealing.js'
-import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS } from './webrtc.js'
+import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS, loadNodePeerConnection, resolvePeerConnection } from './webrtc.js'
 
 /**
  * Error con un `code` estable.
@@ -110,6 +110,17 @@ export class WebSocketProxyClient {
   // ---------- public API ----------
 
   get isConnected () { return this._connected }
+
+  /**
+   * WEBRTC EN NODE, si hay con qué. Se busca UNA vez al conectar y no en medio de una
+   * negociación: importar un paquete es asíncrono y hacerlo tarde metería una espera justo
+   * donde no puede haberla. Si no hay implementación, no pasa nada — se sigue por el
+   * proxio, que es el escalón que siempre funciona.
+   */
+  async _prepareWebRTC () {
+    if (!this._rtc || resolvePeerConnection()) return
+    await loadNodePeerConnection()
+  }
 
   connect () {
     return new Promise((resolve, reject) => {
@@ -231,7 +242,12 @@ export class WebSocketProxyClient {
     for (const t of tokens) {
       if (this._rtcTried.has(t) || this._rtc.isOpen(t)) continue
       this._rtcTried.add(t)
+      // La implementación se busca AQUÍ, justo antes de negociar, y no al conectar: esto ya
+      // corre desatendido, así que la espera no se la come nadie. Lanzarlo desde `connect`
+      // metía un microtask de más y descuadraba los tiempos de otras cosas — lo cazaron
+      // las pruebas del protocolo, que fallaban solo al correr todas juntas.
       Promise.resolve()
+        .then(() => this._prepareWebRTC())
         .then(() => this._rtc.connect(t))
         .catch(() => {})   // no poder ir directo no es un fallo: es el caso normal en internet
     }

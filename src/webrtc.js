@@ -20,6 +20,53 @@ export const DEFAULT_ICE_SERVERS = [
 
 const RTC_TAG = '__cc_rtc__'
 
+/**
+ * DE DÓNDE SALE `RTCPeerConnection`, y por qué esto existe.
+ *
+ * En un navegador es nativo. En Node no hay ninguno, y por eso el ecosistema tenía WebRTC
+ * apagado a mano en todas partes: dos máquinas Node se hablaban por el proxio aunque
+ * estuvieran en la misma red, que es lo contrario de la regla («siempre el camino más
+ * directo», CLAUDE.md).
+ *
+ * Se resuelve en este orden:
+ *
+ *   1. el del entorno (navegador, o un Node que algún día lo traiga);
+ *   2. el que le inyecten (`setPeerConnection`), para no atarse a un paquete concreto;
+ *   3. **`werift`**, si está instalado. Es WebRTC en JavaScript puro — sin binario nativo—
+ *      y eso no es una preferencia estética: la bóveda se distribuye como un ejecutable
+ *      único (SEA) y un `.node` no entra ahí. Se carga PEREZOSO y no es dependencia de
+ *      este paquete: quien lo quiera en Node lo instala.
+ *
+ * Si no hay ninguno, WebRTC queda apagado y se sigue por el proxio. Eso no es un fallo:
+ * es el escalón 4, que siempre funciona.
+ */
+let _PC = null
+let _PCBuscado = false
+
+export function setPeerConnection (impl) { _PC = impl; _PCBuscado = true }
+
+export function resolvePeerConnection () {
+  if (_PCBuscado) return _PC
+  _PCBuscado = true
+  if (typeof globalThis.RTCPeerConnection === 'function') { _PC = globalThis.RTCPeerConnection; return _PC }
+  return _PC
+}
+
+/**
+ * Busca una implementación para Node. Es ASÍNCRONO —importar un paquete lo es— así que se
+ * llama una vez al arrancar, no en medio de una negociación.
+ */
+export async function loadNodePeerConnection () {
+  if (_PCBuscado && _PC) return _PC
+  if (typeof globalThis.RTCPeerConnection === 'function') { _PC = globalThis.RTCPeerConnection; _PCBuscado = true; return _PC }
+  try {
+    const w = await import('werift')
+    if (typeof w?.RTCPeerConnection === 'function') { _PC = w.RTCPeerConnection; _PCBuscado = true; return _PC }
+  } catch (_) { /* no está: se sigue por el proxio, que es el escalón 4 */ }
+  _PCBuscado = true
+  return _PC
+}
+
 export class WebRTCManager {
   /**
    * @param {object} opts
@@ -135,7 +182,9 @@ export class WebRTCManager {
   }
 
   _createPC (peer) {
-    const pc = new RTCPeerConnection({ iceServers: this.iceServers })
+    const PC = resolvePeerConnection()
+    if (!PC) throw new Error('no WebRTC here: install `werift` for Node, or run this in a browser')
+    const pc = new PC({ iceServers: this.iceServers })
     peer.pc = pc
     peer.polite = this._isPolite(peer.remote)
 
