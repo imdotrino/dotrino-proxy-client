@@ -32,10 +32,15 @@ const RTC_TAG = '__cc_rtc__'
  *
  *   1. el del entorno (navegador, o un Node que algún día lo traiga);
  *   2. el que le inyecten (`setPeerConnection`), para no atarse a un paquete concreto;
- *   3. **`werift`**, si está instalado. Es WebRTC en JavaScript puro — sin binario nativo—
- *      y eso no es una preferencia estética: la bóveda se distribuye como un ejecutable
- *      único (SEA) y un `.node` no entra ahí. Se carga PEREZOSO y no es dependencia de
- *      este paquete: quien lo quiera en Node lo instala.
+ *   3. **`@dotrino/webrtc`**, si está instalado — y si no, **`werift`**, del que aquél es
+ *      una poda. Los dos son WebRTC en JavaScript puro, sin binario nativo, y eso no es una
+ *      preferencia estética: la bóveda se distribuye como un ejecutable único (SEA) y un
+ *      `.node` no entra ahí. Se cargan PEREZOSO y ninguno es dependencia de este paquete:
+ *      quien lo quiera en Node lo instala.
+ *
+ *      La poda va primero porque es la mitad de paquetes y sin la pila de audio y vídeo,
+ *      que un canal de datos no toca. Se sigue aceptando el de arriba para no obligar a
+ *      nadie a cambiar, y porque son el mismo código.
  *
  * Si no hay ninguno, WebRTC queda apagado y se sigue por el proxio. Eso no es un fallo:
  * es el escalón 4, que siempre funciona.
@@ -59,10 +64,12 @@ export function resolvePeerConnection () {
 export async function loadNodePeerConnection () {
   if (_PCBuscado && _PC) return _PC
   if (typeof globalThis.RTCPeerConnection === 'function') { _PC = globalThis.RTCPeerConnection; _PCBuscado = true; return _PC }
-  try {
-    const w = await import('werift')
-    if (typeof w?.RTCPeerConnection === 'function') { _PC = w.RTCPeerConnection; _PCBuscado = true; return _PC }
-  } catch (_) { /* no está: se sigue por el proxio, que es el escalón 4 */ }
+  for (const nombre of ['@dotrino/webrtc', 'werift']) {
+    try {
+      const w = await import(nombre)
+      if (typeof w?.RTCPeerConnection === 'function') { _PC = w.RTCPeerConnection; _PCBuscado = true; return _PC }
+    } catch (_) { /* no está: se prueba el siguiente, y si no, el proxio (escalón 4) */ }
+  }
   _PCBuscado = true
   return _PC
 }
