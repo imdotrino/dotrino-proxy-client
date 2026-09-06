@@ -51,7 +51,11 @@ test('sin con qué firmar, sin llave o sin conexión, no se inventa nada', async
   await assert.rejects(() => sinToken.identifyAs({ publickey: 'PK', sign: async () => 'x' }), /token/)
 })
 
-test('una firma que no devuelve firma se para, no manda basura', async () => {
+test('una firma que no devuelve firma se para, y se distingue de un fallo de red', async () => {
   const { c } = cliente()
-  await assert.rejects(() => c.identifyAs({ publickey: 'PK', sign: async () => ({ noHayFirma: true }) }), /signature/)
+  await assert.rejects(
+    () => c.identifyAs({ publickey: 'PK', sign: async () => ({ noHayFirma: true }) }),
+    (e) => e.code === 'no-signature',
+    'por el `code`: la bóveda decide con esto si su llave de comunicación sigue firmando'
+  )
 })

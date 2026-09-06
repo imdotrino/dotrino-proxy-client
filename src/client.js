@@ -513,7 +513,12 @@ export class WebSocketProxyClient {
     const data = { op: 'identify', aud: this.audience, publickey, token: this.token, ts: Date.now() }
     const firmado = await sign(data)
     const signature = typeof firmado === 'string' ? firmado : firmado?.signature
-    if (typeof signature !== 'string') throw new Error('identifyAs: sign() must return the signature')
+    // «No pude firmar» y «se cayó la red» son cosas distintas, y se distinguen por el
+    // `code`: la bóveda usa esto para saber si su llave de comunicación firma todavía, y
+    // tragarse un fallo de red como si fuera lo primero la mandaría al camino equivocado.
+    if (typeof signature !== 'string') {
+      throw Object.assign(new Error('identifyAs: sign() returned no signature'), { code: 'no-signature' })
+    }
     return this.identify({ data, signature, cert, acta, sign })
   }
 
