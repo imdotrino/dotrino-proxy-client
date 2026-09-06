@@ -58,6 +58,17 @@ async function esperaFrame (ws, tipo, ms = 3000) {
   throw new Error(`el cliente nunca mando un frame '${tipo}' (mando: ${ws.enviados.map((x) => x.type).join(', ') || 'nada'})`)
 }
 
+/** Espera a que se hayan mandado `n` frames de un tipo, y los devuelve todos. */
+async function esperaFrames (ws, tipo, n, ms = 3000) {
+  const limite = Date.now() + ms
+  while (Date.now() < limite) {
+    const fs = ws.enviados.filter((x) => x.type === tipo)
+    if (fs.length >= n) return fs
+    await tick()
+  }
+  throw new Error(`se esperaban ${n} frames '${tipo}' y se mandaron ${ws.enviados.filter((x) => x.type === tipo).length}`)
+}
+
 /** Cliente conectado a un socket falso, sin WebRTC ni heartbeat de por medio. */
 async function conectado () {
   const c = new WebSocketProxyClient({
@@ -105,10 +116,15 @@ test('una respuesta con OTRO id no resuelve la peticion', async () => {
 test('dos peticiones a la vez resuelven cada una la suya', async () => {
   const { c, ws } = await conectado()
   const a = c.publish('sala-a')
-  const idA = (await esperaFrame(ws, 'publish')).id
   const b = c.publish('sala-b')
-  await tick()
-  const idB = ws.enviados.filter((x) => x.type === 'publish').at(-1).id
+  // Se espera a que estén LOS DOS frames, no un `tick` a ver si llega el segundo: en una
+  // máquina más lenta (CI) no había llegado, se leía el primero dos veces y el test caía
+  // diciendo que los ids eran iguales — un fallo del test, no del cliente.
+  const frames = await esperaFrames(ws, 'publish', 2)
+  // Cada frame se busca por SU canal (`channel.data.name`), no por la posición: lanzadas a
+  // la vez, el orden en que salen no tiene por qué ser el orden en que se pidieron.
+  const idA = frames.find((f) => f.channel?.data?.name === 'sala-a').id
+  const idB = frames.find((f) => f.channel?.data?.name === 'sala-b').id
   assert.notEqual(idA, idB)
   ws.responde({ type: 'published', id: idB, channel: 'sala-b' })
   ws.responde({ type: 'published', id: idA, channel: 'sala-a' })
