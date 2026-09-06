@@ -8,7 +8,10 @@ import { seal, makeEncKeypair, isSealed, setSealingPrimitives } from '../src/sea
 // `@dotrino/identity` es peer dependency: en este repo no está instalada, así que se
 // inyectan las primitivas desde la copia del ecosistema. Es exactamente el hueco que
 // `setSealingPrimitives` existe para cubrir.
-setSealingPrimitives(await import('../../dotrino-identity/vault/content.js'))
+// POR EL NOMBRE DEL PAQUETE, no por una ruta al monorepo: con `../../dotrino-identity`
+// esta prueba solo corría en la máquina de quien tiene el ecosistema clonado al lado, y en
+// CI se caía por módulo no encontrado — o sea que no probaba nada donde importa.
+setSealingPrimitives(await import('@dotrino/identity/content'))
 
 function clienteFalso (opts = {}) {
   const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, ...opts })
