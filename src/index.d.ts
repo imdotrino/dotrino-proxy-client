@@ -131,7 +131,14 @@ export class WebSocketProxyClient {
   channelCount (channel: string): Promise<number>
   disconnectFrom (targetToken: string): Promise<any>
   sendByPubkey (toPubkeys: string | string[], payload: any): void
-  identify (envelope: { data: any; signature: string }): Promise<{ publickey: string; queued_delivered: number }>
+  identify (envelope: { data: any; signature: string; cert?: any; acta?: any; sign?: (data: any) => Promise<any> }): Promise<{ publickey: string; queued_delivered: number }>
+  /** PARA QUIÉN firmamos cuando le hablamos a este proxio: la URL a la que estamos conectados. */
+  readonly audience: string
+  /**
+   * Identificarse armando el sobre aquí: `{op:'identify', aud, publickey, token, ts}` firmado
+   * con `sign`. Es la forma normal — el sobre a mano estaba copiado en doce repos.
+   */
+  identifyAs (args: { publickey: string; sign: (data: any) => Promise<any>; cert?: any; acta?: any }): Promise<{ publickey: string; queued_delivered: number }>
   /** Pedir credenciales TURN temporales al proxy (requiere identify previo en esta conexión). */
   getTurnCredentials (opts: TurnCredentialsOptions): Promise<TurnCredentials>
   /** Activar TURN en WebRTC: inyecta las credenciales temporales y las renueva sola. */
