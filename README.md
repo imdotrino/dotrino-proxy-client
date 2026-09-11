@@ -193,7 +193,7 @@ Cuando un mensaje cae a la cola offline, el proxy puede mandar un **Web Push** (
 await client.enablePush({ publicKey, sign, swPath: '/dotrino-push-sw.js' })
 ```
 
-**Caso B — PWA con SW propio (vite-plugin-pwa/Workbox, etc.):** NO registres un segundo SW (clobbearía el tuyo). En su lugar, inyectá los handlers de push en tu SW existente y llamá `enablePush()` **sin** `swPath` (usa el SW activo):
+**Caso B — PWA con SW propio (vite-plugin-pwa/Workbox, etc.):** NO registres un segundo SW (clobbearía el tuyo). En su lugar, inyecta los handlers de push en tu SW existente y llama a `enablePush()` **sin** `swPath` (usa el SW activo):
 ```js
 // vite.config.js → VitePWA({ workbox: { importScripts: ['dotrino-push-sw.js'] } })
 // (copiá el SW a public/ para que importScripts lo encuentre)
@@ -213,7 +213,7 @@ await client.identify({ data, signature })
 
 // (2) Activar push: crea la subscription y la registra (firmada por el vault)
 //     en el proxy. La VAPID se pide sola si no la pasás. Para una PWA con SW
-//     propio, omití swPath (usa el SW activo); ver "Caso B" arriba.
+//     propio, omite swPath (usa el SW activo); ver "Caso B" arriba.
 await client.enablePush({
   publicKey: id.me.publickey,
   sign: (d) => id.signData(d)        // mismo firmante que identify
@@ -229,7 +229,7 @@ El Service Worker, al recibir el timbre, hace `postMessage({ type: 'cc-push-ring
 
 ## Push programado / auto-recordatorios (0.6.0+)
 
-Además del timbre event-driven, podés **programar un push a tu PROPIA pubkey** para una hora futura: el proxy lo dispara aunque la app esté cerrada (despierta el mismo SW). Es **self-only** — el target es siempre la pubkey que firma, así nadie puede programar pushes a terceros (sin vector de spam). Requiere haber activado push (`enablePush`) para que haya una subscription que timbrar.
+Además del timbre event-driven, puedes **programar un push a tu PROPIA pubkey** para una hora futura: el proxy lo dispara aunque la app esté cerrada (despierta el mismo SW). Es **self-only** — el target es siempre la pubkey que firma, así nadie puede programar pushes a terceros (sin vector de spam). Requiere haber activado push (`enablePush`) para que haya una subscription que timbrar.
 
 ```js
 // One-shot: dentro de 1 hora

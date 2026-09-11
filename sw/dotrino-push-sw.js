@@ -10,13 +10,13 @@
  *   3. Al hacer click: enfoca/abre la app.
  *
  * La app debe servir este archivo desde su propio origen (cópialo a tu carpeta
- * pública, p.ej. /public/) y pasarlo como `swPath` a `enablePush()`. Podés
+ * pública, p.ej. /public/) y pasarlo como `swPath` a `enablePush()`. Puedes
  * personalizar título/cuerpo/idioma editando las constantes de abajo o
  * extendiendo los handlers.
  */
 
 const DEFAULT_TITLE = 'Dotrino'
-const DEFAULT_BODY = 'Tenés mensajes nuevos'
+const DEFAULT_BODY = 'Tienes mensajes nuevos'
 const DEFAULT_URL = '/'
 
 self.addEventListener('push', (event) => {
