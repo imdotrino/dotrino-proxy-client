@@ -209,8 +209,12 @@ test('list devuelve los tokens, y una lista vacia si el proxy no manda ninguno',
   // Un canal sin nadie debe dar [], no undefined: quien llama hace .map/.length
   // encima sin preguntar.
   const p2 = c.list('vacio')
-  await tick()
-  ws.responde({ type: 'channel_list', id: ws.enviados.filter((x) => x.type === 'list').at(-1).id })
+  // `esperaFrames`, no un `tick()` suelto: firmar el canal es criptografia de verdad y
+  // tarda mas de un turno. Con el tick, en una maquina cargada —CI— el segundo `list`
+  // aun no habia salido, se contestaba al id del PRIMERO y la peticion moria de timeout
+  // a los 10 s. El test no medía nada de eso: medía la velocidad del runner.
+  const listados = await esperaFrames(ws, 'list', 2)
+  ws.responde({ type: 'channel_list', id: listados.at(-1).id })
   assert.deepEqual(await p2, [])
   c.close()
 })
