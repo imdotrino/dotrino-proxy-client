@@ -153,15 +153,28 @@ resto solo, por detrás y sin bloquear.
 
 ```js
 // Navegador (la privada vive en la bóveda; la pública no es secreto).
+import { getWebSocketProxyClient, identitySealing } from '@dotrino/proxy-client'
+
 const client = getWebSocketProxyClient({
   url: 'wss://proxy.dotrino.com',
   requireSealed: true,
   myEncPub: await identity.getEncryptionPubkey(),
-  sealing: puenteDeLaBoveda,            // seal/open/isSealed contra identity.encrypt/decrypt
+  sealing: identitySealing(identity, { app: 'mundial' }),   // 0.21.0+
 })
 await client.connect()
 await client.identifyAs({ publickey: me.publickey, sign: (d) => identity.signData(d) })
 ```
+
+`identitySealing` es **el puente de la bóveda**, y viene en el pilar desde 0.21.0: en el
+navegador la privada de cifrado no está en la app —vive dentro del iframe y no sale—, así
+que sellar y abrir se delegan en `identity.encrypt` / `identity.decrypt`, que es la misma
+cripto. Habla los dos dialectos de `@dotrino/identity` (la clase que habla con el iframe y
+el núcleo de dentro de un service worker) y comprueba algo que se cuela solo: si la bóveda
+envuelve el mensaje **para nadie** —la llave del otro no se pudo importar y el llavero sale
+vacío—, lanza con `code: 'unsealed'` en vez de mandar un sobre cifrado que no abre nadie.
+
+`app` es la marca del sobre: quien recibe lo que no es suyo lo descarta por ahí. Es estable
+por app y cambiarla es dejar de abrir lo de la versión anterior.
 
 ```js
 // Aparato headless (la privada es suya).

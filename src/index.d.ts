@@ -263,3 +263,22 @@ export function buildSignedChannel (
 export function getWebSocketProxyClient (
   options?: WebSocketProxyClientOptions
 ): WebSocketProxyClient
+
+/** Seal a message towards a peer's encryption public key (headless devices). */
+export function seal (message: any, peerEncPub: string): Promise<any>
+/** Open a message sealed to me with my own encryption private key. */
+export function open (envelope: any, myEncPrivateKey: CryptoKey): Promise<any>
+/** Is this the pillar's sealed envelope? */
+export function isSealed (message: any): boolean
+/** A durable encryption keypair for a headless device. */
+export function makeEncKeypair (): Promise<{ privateKey: CryptoKey; publicKey: CryptoKey; encPub: string }>
+export function importEncPrivate (jwk: any): Promise<CryptoKey>
+export function exportEncPrivate (privateKey: CryptoKey): Promise<any>
+/** Inject the crypto primitives instead of resolving `@dotrino/identity` (bundlers, tests). */
+export function setSealingPrimitives (mod: any): void
+/**
+ * The bridge for a BROWSER app: the encryption private key lives in the vault, so
+ * sealing and opening are delegated to `@dotrino/identity` (`encrypt`/`decrypt`).
+ * `app` marks the envelope so a peer discards what is not its own.
+ */
+export function identitySealing (identity: any, opts?: { app?: string }): SealingBridge
