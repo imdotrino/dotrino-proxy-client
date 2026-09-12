@@ -66,6 +66,7 @@ export type ProxyEvent =
   | 'channel_joined'
   | 'channel_left'
   | 'peer_disconnected'
+  | 'peer_identity'
   | 'reconnecting'
   | 'reconnect_failed'
   | 'abuse_notice'
@@ -202,6 +203,18 @@ export class WebSocketProxyClient {
   learnEncPub (statement: EncPubStatement, args: { publickey: string }): Promise<string>
   /** Forget what was learnt about an identity (it rotated its key), or about everyone. */
   forgetEncPub (publickey?: string | null): void
+  /**
+   * Greet one or more tokens: tell them whose this connection is. Carries only the
+   * public key the proxy already binds to it, so it needs no envelope; the other side
+   * answers once, and `peer_identity` fires on both.
+   */
+  helloTo (to: string | string[]): void
+  /** Whose this token is, if anybody has said so. Null means «not yet». */
+  pubkeyOfToken (token: string): string | null
+  /** Forget a token (it left), or all of them. */
+  forgetToken (token?: string | null): void
+  /** My own identity on the wire, as `identify` bound it. */
+  readonly myPublickey: string | null
   /** What this proxy says it can do, from the `connected` frame. Null on older proxies. */
   readonly caps: string[] | null
   /** The proxy's wire protocol number. Null on proxies from before it was announced. */

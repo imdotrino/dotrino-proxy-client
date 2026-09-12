@@ -260,9 +260,11 @@ test('sendSealedTo sella a la identidad que la app dice que hay detrás del toke
 
 test('sendSealedTo sin decir de quién es el token no manda nada', async () => {
   const c = cliente()
+  // `no-peer-identity` y no `unsealed`: no es que se intentara mandar en claro, es que
+  // nadie ha dicho de quién es ese token. Se arregla saludando, no sellando.
   await assert.rejects(
     () => c.sendSealedTo('TOKEN', { x: 1 }, {}),
-    (e) => e.code === 'unsealed')
+    (e) => e.code === 'no-peer-identity')
   assert.equal(conContenido(c).length, 0)
 })
 

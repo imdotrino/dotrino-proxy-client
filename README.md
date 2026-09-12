@@ -213,6 +213,44 @@ significan cosas distintas y se arreglan de formas distintas:
 varios destinatarios se resuelven todas las llaves **antes** de mandar nada, para que no
 quede media sala con el mensaje y la otra media sin él.
 
+### Y DE QUIÉN ES ESTE TOKEN: el saludo (0.22.0+)
+
+La llave se averigua a partir de la **pubkey**, y en una sala lo único que se tiene son
+**tokens**. Un token es una dirección del proxio y no dice de quién es, así que una sala de
+desconocidos se quedaba igual de muda: sabía a qué direcciones escribir y a ninguna
+identidad. Ese era el último tramo en claro.
+
+`helloTo` lo cierra. Es una trama de **control del transporte**, hermana de la
+señalización de WebRTC: va en claro y `requireSealed` no la para, porque lo único que lleva
+es una llave **pública** que el proxio ya tiene atada a esa conexión desde `identify`.
+Nada del usuario pasa por ahí.
+
+```js
+await client.identifyAs({ publickey: yo.publickey, sign })
+
+client.on('peer_identity', (token, publickey) => {
+  // Ya se le puede sellar. La llave de cifrado la resuelve el pilar solo.
+  client.sendSealedTo(token, { type: 'JOIN', nick })
+})
+
+for (const t of await client.list('sala_general')) client.helloTo(t)   // saludar a los que ya estaban
+client.on('channel_joined', (_ch, t) => client.helloTo(t))             // y a los que lleguen
+```
+
+- **Basta con que salude una punta**: quien lo recibe contesta el suyo una vez, y
+  `peer_identity` salta en los dos lados. La app no coreografía nada.
+- **`sendSealedTo` ya no necesita `peerPubkey`** para un solo token: lo saca del saludo. Si
+  nadie ha saludado, **no manda nada** y lanza `no-peer-identity` — que es distinto de
+  `no-encpub` (ése saludó, pero nunca anunció llave de cifrado).
+- **Un token no cambia de dueño.** Un segundo saludo con otra identidad se descarta y se
+  avisa (`hello_conflict`): manda el primero.
+- **Quien se va, se olvida** (`peer_disconnected`). Los tokens no se reciclan.
+
+**No autentica, y no hace falta que lo haga.** Mentir sobre la propia identidad solo
+consigue que te sellen a una llave que no puedes abrir: el embustero se queda sin leer y
+nadie se queda suplantado. Quién firma de verdad lo dice el reto de la app, o el
+`from_publickey` que pone el proxio al enrutar por pubkey.
+
 ### Si ya sabes la llave, no preguntes
 
 Los aparatos de un mismo dueño llevan su llave de cifrado escrita en el **acta**, firmada
