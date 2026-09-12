@@ -7,6 +7,45 @@ export interface WebSocketProxyClientOptions {
   enableWebRTC?: boolean
   /** Override ICE servers (STUN-only by default). */
   iceServers?: RTCIceServer[]
+  /** Refuse to send OR accept directed messages in the clear (`send` and `sendByPubkey`). */
+  requireSealed?: boolean
+  /** My encryption private key, to open what is sealed to me (headless devices). */
+  myEncPrivateKey?: CryptoKey
+  /**
+   * My PUBLIC encryption key. With it set, `identify` announces it (signed) so anyone who
+   * knows my pubkey can seal to me without ever having paired.
+   */
+  myEncPub?: string
+  /** Delegate sealing to the vault (browser apps, where the private key is not here). */
+  sealing?: SealingBridge
+  /**
+   * Answer "what is this identity's encryption key?" locally when it is already known —
+   * an app holding the profile's acta plugs `memberEncPub(acta, pub)` in here. Returning
+   * null means "I do not know": the proxy directory is asked next, and if nobody knows,
+   * nothing is sent.
+   */
+  encPubResolver?: (publickey: string) => Promise<string | null> | string | null
+  acceptDirectFrom?: (token: string) => boolean
+}
+
+/** What an app plugs in when the encryption private key lives in the vault, not here. */
+export interface SealingBridge {
+  seal (message: any, peerEncPub: string): Promise<any>
+  open (envelope: any, meta?: any): Promise<any>
+  isSealed (message: any): boolean
+}
+
+/** The signed statement that binds an encryption key to an identity. */
+export interface EncPubStatement {
+  data: {
+    v: 1
+    op: 'encpub'
+    aud: string
+    publickey: string
+    encpub: string
+    ts: number
+  }
+  signature: string
 }
 
 export interface ChannelEntry {
@@ -131,6 +170,42 @@ export class WebSocketProxyClient {
   channelCount (channel: string): Promise<number>
   disconnectFrom (targetToken: string): Promise<any>
   sendByPubkey (toPubkeys: string | string[], payload: any): void
+  /**
+   * Seal towards each recipient's encryption key and send by pubkey.
+   *
+   * With no `peerEncPub` the key is resolved (local resolver, then the proxy directory)
+   * and VERIFIED against the pubkey being written to. If any recipient's key cannot be
+   * resolved, nothing is sent at all — it throws with `code`: 'no-encpub' (nobody has
+   * announced one), 'encpub-unverified' (a key arrived that that identity did not sign),
+   * or 'no-encpub-support' (this proxy is older than websocket-proxy 1.1.0).
+   */
+  sendSealed (
+    toPubkeys: string | string[],
+    payload: any,
+    opts?: { peerEncPub?: string; ephemeral?: boolean }
+  ): Promise<void>
+  /**
+   * Seal and send BY TOKEN (which is what peers in a room use, and the only route that
+   * can upgrade to WebRTC). A token does not say whose it is, so the app states it with
+   * `peerPubkey` — from the channel, the room roster or the invite.
+   */
+  sendSealedTo (
+    toTokens: string | string[],
+    payload: any,
+    opts: { peerPubkey?: string; peerEncPub?: string }
+  ): Promise<void>
+  /** Announce my encryption key, signed. `identify` does it on its own when `myEncPub` is set. */
+  announceEncPub (args: { publickey: string; encPub: string; sign: SignFn }): Promise<string>
+  /** An identity's encryption key, verified. Never returns null: it resolves or throws. */
+  encPubOf (publickey: string): Promise<string>
+  /** Take in a key that already comes signed by its owner (from an invite, a channel). */
+  learnEncPub (statement: EncPubStatement, args: { publickey: string }): Promise<string>
+  /** Forget what was learnt about an identity (it rotated its key), or about everyone. */
+  forgetEncPub (publickey?: string | null): void
+  /** What this proxy says it can do, from the `connected` frame. Null on older proxies. */
+  readonly caps: string[] | null
+  /** The proxy's wire protocol number. Null on proxies from before it was announced. */
+  readonly protocol: number | null
   identify (envelope: { data: any; signature: string; cert?: any; acta?: any; sign?: (data: any) => Promise<any> }): Promise<{ publickey: string; queued_delivered: number }>
   /** PARA QUIÉN firmamos cuando le hablamos a este proxio: la URL a la que estamos conectados. */
   readonly audience: string
@@ -164,6 +239,22 @@ export class WebSocketProxyClient {
 export function canonicalStringify (value: any): string
 export function getPublicKeyJwk (): Promise<string>
 export function signData (data: any): Promise<string>
+/** Verify someone else's signature over the canonical JSON of `data`. */
+export function verifyData (publickeyJwkStr: string, data: any, signatureB64: string): Promise<boolean>
+/** Are these the same key? Never compare serialized JWKs with `===`. */
+export function samePubkey (a: string, b: string): boolean
+export const ENCPUB_V: 1
+export const ENCPUB_AUD: string
+export function isEncPub (v: string): boolean
+export function encPubBody (args: { publickey: string; encPub: string; ts?: number }): EncPubStatement['data']
+export function buildEncPubStatement (
+  args: { publickey: string; encPub: string; sign: SignFn }
+): Promise<EncPubStatement>
+/** Read someone's announcement and return the key, or throw with `code`. Never null. */
+export function readEncPubStatement (
+  statement: EncPubStatement,
+  args: { publickey: string }
+): Promise<string>
 export function buildSignedChannel (
   channelName: string,
   extraData?: Record<string, any>

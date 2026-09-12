@@ -127,6 +127,106 @@ tener cualquier app que mande algo del usuario. La criptografía es la de
 como **peer dependency**: empaquetarla aquí colaría una copia vieja del pilar en cada
 consumidor.
 
+## La llave del otro lado SE AVERIGUA (0.20.0+)
+
+Hasta 0.19 `sendSealed` exigía `peerEncPub` y el pilar no daba **ninguna** forma de
+conseguirla. O sea que solo podían sellar dos puntas que se hubieran emparejado antes y
+se la hubieran intercambiado a mano — el gestor de contraseñas, y poco más. Una sala de
+desconocidos no puede hacer eso, así que seguía mandando en claro.
+
+Desde 0.20.0 cada identidad **anuncia** su llave de cifrado con una frase firmada por la
+misma llave con la que se identifica en el cable:
+
+```
+{ v:1, op:'encpub', aud:'dotrino:encpub', publickey, encpub, ts }  + signature
+```
+
+El proxio se la queda y se la da a quien pregunte. **Es un buzón, no una autoridad**:
+devuelve el sobre entero y quien pregunta verifica la firma contra la pubkey a la que va
+a escribir. Si el proxio cambiara la llave por la suya para poder leer, la firma no
+cuadra y no sale nada — ni sellado ni en claro.
+
+### La receta, para migrar una app
+
+**1. Anunciar la propia llave.** Una línea al construir el cliente; `identify` hace el
+resto solo, por detrás y sin bloquear.
+
+```js
+// Navegador (la privada vive en la bóveda; la pública no es secreto).
+const client = getWebSocketProxyClient({
+  url: 'wss://proxy.dotrino.com',
+  requireSealed: true,
+  myEncPub: await identity.getEncryptionPubkey(),
+  sealing: puenteDeLaBoveda,            // seal/open/isSealed contra identity.encrypt/decrypt
+})
+await client.connect()
+await client.identifyAs({ publickey: me.publickey, sign: (d) => identity.signData(d) })
+```
+
+```js
+// Aparato headless (la privada es suya).
+const mio = await makeEncKeypair()      // { privateKey, encPub }
+const client = new WebSocketProxyClient({
+  url, requireSealed: true,
+  myEncPub: mio.encPub,
+  myEncPrivateKey: mio.privateKey,
+})
+```
+
+**2. Mandar.** Se quita el `peerEncPub` y ya está: el pilar lo averigua, lo verifica y
+lo cachea.
+
+```js
+// Por pubkey (cola offline 24 h). UNA envoltura por destinatario.
+await client.sendSealed([pubkeyDelOtro], { type: 'ROOM_INVITE', url })
+
+// Por token, que es como hablan los de una sala y lo único que sube a WebRTC.
+// El token NO dice de quién es: lo dice la app, con lo que ya sabe del canal,
+// del saludo de la sala o de la invitación.
+await client.sendSealedTo(token, { type: 'hit', enemyId }, { peerPubkey: pubkeyDelOtro })
+```
+
+**3. Y si algo falla, mirar el `code`** — nunca la frase (ver más abajo). Los tres
+significan cosas distintas y se arreglan de formas distintas:
+
+| `code` | Qué pasó | Qué hacer |
+|---|---|---|
+| `no-encpub` | nadie ha anunciado llave para esa identidad | el otro lado tiene que actualizar; esperar no sirve |
+| `encpub-unverified` | llegó una llave que **esa identidad no firmó** | no se manda nada. Es el caso que importa |
+| `no-encpub-support` | el proxio es anterior a `websocket-proxy` 1.1.0 | actualizar el proxio |
+| `unsealed` | se intentó mandar en claro con `requireSealed` | usar `sendSealed`/`sendSealedTo` |
+
+**Nada de repliegues.** Si no se puede sellar, **no se manda en claro**: se lanza. Con
+varios destinatarios se resuelven todas las llaves **antes** de mandar nada, para que no
+quede media sala con el mensaje y la otra media sin él.
+
+### Si ya sabes la llave, no preguntes
+
+Los aparatos de un mismo dueño llevan su llave de cifrado escrita en el **acta**, firmada
+por el master — eso es más fuerte que el anuncio. Una app que tiene el acta enchufa:
+
+```js
+import { memberEncPub } from '@dotrino/identity/acta'   // ≥ 0.90.0
+
+const client = new WebSocketProxyClient({
+  url, requireSealed: true, myEncPub, myEncPrivateKey,
+  encPubResolver: (pub) => memberEncPub(acta, pub),      // null = «yo no sé» → pregunta al proxio
+})
+```
+
+### Lo que esto NO resuelve, dicho en voz alta
+
+- **Sellar a una PERSONA (el `profileId`) y no a un aparato.** Escribir a un `profileId`
+  llega a todos sus aparatos, y cada uno tiene su propia llave de cifrado: eso es la
+  tarjeta de perfil del acta (`cardBody`), no este directorio. Preguntar por un
+  `profileId` que nunca se anunció da `no-encpub`, alto y claro.
+- **Rotar la llave de cifrado.** Si alguien la cambia, lo sellado a la anterior deja de
+  abrirse y llega como `{ type: 'undecipherable' }`. El anuncio lleva `ts` y el proxio
+  nunca acepta uno más viejo que el que tiene, así que nadie puede hacerte retroceder;
+  pero rotar sigue costando lo ya enviado.
+- **Comparar pubkeys con `===`.** Un JWK serializado no es canónico. Para eso está
+  `samePubkey`, que este paquete exporta y usa por dentro.
+
 ## Identidad
 
 Cada navegador genera y persiste un par ECDSA P-256 en `localStorage` (`dotrino.proxy-client.keypair`). La pública se incluye en cada operación de canal y sirve como identidad estable entre sesiones (no entre apps con orígenes distintos — para eso usa la librería de identidad).
@@ -284,6 +384,11 @@ comprobación por frase se rompe **en silencio** el día que eso pase.
 | `NOT_CONNECTED` | se pidió algo sin conexión abierta |
 | `CONNECTION_CLOSED` | se llamó a `close()` con peticiones en vuelo: se cortan en el acto en vez de esperar el timeout |
 | `REQUEST_TIMEOUT` | el proxy no contestó en 10 s |
+| `unsealed` | se intentó mandar un mensaje dirigido en claro con `requireSealed` |
+| `no-encpub` | nadie ha anunciado la llave de cifrado de ese destinatario |
+| `encpub-unverified` | llegó una llave que esa identidad no firmó (un proxio hostil, un sobre manipulado) |
+| `no-encpub-support` | el proxio no sirve el directorio de llaves (anterior a `websocket-proxy` 1.1.0) |
+| `no-signature` | `sign()` no devolvió firma. **No** es un fallo de red: eso se arregla en la bóveda |
 
 ```js
 try {

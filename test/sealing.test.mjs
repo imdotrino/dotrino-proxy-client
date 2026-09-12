@@ -43,11 +43,16 @@ test('sendSealed manda el sobre; el contenido no va por el cable', async () => {
   assert.ok(isSealed(JSON.parse(c._enviado.message)))
 })
 
-test('sendSealed sin la llave del otro lado no manda nada', async () => {
+// Antes esto afirmaba que sin `peerEncPub` se lanzaba `unsealed` y punto. Desde
+// 0.20.0 el pilar SABE AVERIGUARLA (`enc-lookup`, ver `test/encpub.test.mjs`), así que
+// ya no falla por no traerla: falla porque nadie la tiene, que es otra cosa y se
+// distingue por el `code`. Lo que no cambió, y es lo que aquí importa: no sale nada.
+test('sendSealed sin llave y sin quien la sepa no manda nada', async () => {
   const c = clienteFalso()
+  c.caps = ['channels']   // un proxio que no sirve el directorio: contesta al instante
   await assert.rejects(
     () => c.sendSealed(['PEER'], { x: 1 }, {}),
-    e => e.code === 'unsealed')
+    e => e.code === 'no-encpub-support')
   assert.equal(c._enviado, undefined)
 })
 
