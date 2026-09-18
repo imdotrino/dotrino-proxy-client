@@ -117,3 +117,26 @@ test('un `connect()` inicial que falla NO deja un bucle de fondo: se rechaza y y
     c.close()
   })
 })
+
+/**
+ * Y REINTENTAR NO PUEDE DEJAR COLGADO A QUIEN NO CIERRA.
+ *
+ * Desde que se reintenta de verdad, el temporizador del siguiente intento basta para que un
+ * programa de Node que se olvidó de cerrar el cliente no termine NUNCA. Pasó en cuanto se
+ * arregló lo de arriba: la suite del vault se quedó colgada en un e2e que apaga su proxio.
+ */
+test('el temporizador del reintento no mantiene vivo el proceso', async () => {
+  await conCliente(async () => {
+    const c = new WebSocketProxyClient({
+      url: 'wss://x', enableWebRTC: false, autoReconnect: true,
+      reconnectDelay: 10_000, maxReconnectAttempts: 50, enableHeartbeat: false
+    })
+    await c.connect()
+    SocketFalso.abre = false
+    SocketFalso.ultimo.disparar('close', { code: 1006, reason: 'network gone' })
+    assert.ok(c._reconnectTimer, 'no programó ningún reintento')
+    // En el navegador no hay `hasRef`; ahí tampoco hay proceso que colgar.
+    assert.equal(c._reconnectTimer.hasRef?.(), false, 'el reintento pendiente sujeta el proceso')
+    c.close()
+  })
+})

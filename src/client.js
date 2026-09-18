@@ -1194,6 +1194,12 @@ export class WebSocketProxyClient {
     this._reconnectAttempts++
     this._emit('reconnecting', this._reconnectAttempts, this.maxReconnectAttempts)
     this._reconnectTimer = setTimeout(() => this._open(), this.reconnectDelay)
+    // UN REINTENTO PENDIENTE NO MANTIENE VIVO EL PROCESO. Desde que se reintenta de verdad
+    // —antes la cadena se cortaba sola al primer fallo—, este temporizador basta para que un
+    // programa de Node que se olvidó de cerrar el cliente no termine nunca. Lo de siempre:
+    // esto es mantenimiento de fondo, y quién se va es decisión de la app. En el navegador
+    // `unref` no existe y no hace falta.
+    this._reconnectTimer.unref?.()
   }
 
   _handleFrame (raw) {
