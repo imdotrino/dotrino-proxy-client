@@ -184,6 +184,18 @@ test('sendByPubkey solo marca ephemeral cuando se pide', async () => {
   c.close()
 })
 
+test('sendByPubkey solo marca quiet cuando se pide', async () => {
+  const { c, ws } = await conectado()
+  // Sin la marca el proxio toca el timbre push, que es lo que quiere un chat. Con ella
+  // se encola igual, pero no despierta al teléfono por un aviso que puede esperar.
+  c.sendByPubkey('PUB1', { hola: 1 })
+  assert.equal(ws.ultimoEnviado.quiet, undefined)
+  c.sendByPubkey('PUB1', { ev: 'vars' }, { quiet: true })
+  assert.equal(ws.ultimoEnviado.quiet, true)
+  assert.equal(ws.ultimoEnviado.ephemeral, undefined, 'callar no es descartar')
+  c.close()
+})
+
 test('sendByPubkey serializa el payload a texto, y no re-serializa una cadena', async () => {
   const { c, ws } = await conectado()
   c.sendByPubkey('PUB1', { a: 1 })

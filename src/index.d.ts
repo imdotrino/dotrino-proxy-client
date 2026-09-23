@@ -170,7 +170,12 @@ export class WebSocketProxyClient {
   listChannels (options?: ListChannelsOptions): Promise<ChannelEntry[]>
   channelCount (channel: string): Promise<number>
   disconnectFrom (targetToken: string): Promise<any>
-  sendByPubkey (toPubkeys: string | string[], payload: any): void
+  sendByPubkey (
+    toPubkeys: string | string[],
+    payload: any,
+    /** `ephemeral`: dropped if the recipient is offline. `quiet`: queued, but no push ring. */
+    opts?: { ephemeral?: boolean; quiet?: boolean }
+  ): void
   /**
    * Seal towards each recipient's encryption key and send by pubkey.
    *
@@ -183,7 +188,7 @@ export class WebSocketProxyClient {
   sendSealed (
     toPubkeys: string | string[],
     payload: any,
-    opts?: { peerEncPub?: string; ephemeral?: boolean }
+    opts?: { peerEncPub?: string; ephemeral?: boolean; quiet?: boolean }
   ): Promise<void>
   /**
    * Seal and send BY TOKEN (which is what peers in a room use, and the only route that
