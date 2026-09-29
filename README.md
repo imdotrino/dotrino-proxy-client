@@ -173,6 +173,14 @@ el núcleo de dentro de un service worker) y comprueba algo que se cuela solo: s
 envuelve el mensaje **para nadie** —la llave del otro no se pudo importar y el llavero sale
 vacío—, lanza con `code: 'unsealed'` en vez de mandar un sobre cifrado que no abre nadie.
 
+**Desde 0.25.0 el sobre llega a TODOS los aparatos del otro, y dice quién lo selló.**
+`sendSealed`/`sendSealedTo` le pasan a la bóveda la `publickey` del destinatario, y
+`encrypt` expande el sobre a cada aparato de su tarjeta de perfil (antes solo lo abría el
+aparato que anunció la llave). Y lo que llega trae `meta.senderEncPub`: la llave de cifrado
+de quien selló. Solo quien tiene esa privada pudo armar el sobre, así que es lo que dice de
+quién viene — el token no lo dice, y el saludo no autentica. La app la compara con la que
+conoce de su contacto.
+
 `app` es la marca del sobre: quien recibe lo que no es suyo lo descarta por ahí. Es estable
 por app y cambiarla es dejar de abrir lo de la versión anterior.
 

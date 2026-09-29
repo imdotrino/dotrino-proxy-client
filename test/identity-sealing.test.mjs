@@ -132,3 +132,27 @@ test('una identidad que no habla ninguno de los dos dialectos revienta con nombr
   assert.throws(() => identitySealing({}), /getEncryptionPubkey|encryptionPubkey/)
   assert.throws(() => identitySealing({ getEncryptionPubkey: () => {} }), /encrypt\(\)\/decrypt\(\)/)
 })
+
+test('con la pubkey del destinatario, el sobre llega a TODOS sus aparatos (tarjeta)', async () => {
+  const ana = await boveda()
+  const recibidos = []
+  const id = {
+    getEncryptionPubkey: async () => ana.encPub,
+    encrypt: async (recipients, pt) => { recibidos.push(...recipients); return ana.encrypt(recipients, pt) },
+    decrypt: async () => ({ plaintext: '{}' })
+  }
+  const beto = await boveda()
+  await identitySealing(id, { app: 'prueba' }).seal({ a: 1 }, beto.encPub, { publickey: 'PUB-BETO' })
+  // La bóveda expande por la tarjeta, y la tarjeta se busca por `publickey`: sin ella,
+  // solo abría el aparato que anunció la llave.
+  assert.deepEqual(recibidos, [{ publickey: 'PUB-BETO', encryptionPubkey: beto.encPub }])
+})
+
+test('senderOf dice quién selló: la llave de cifrado de quien armó el sobre', async () => {
+  const ana = await boveda()
+  const beto = await boveda()
+  const sellado = identitySealing(dialectoIframe(ana), { app: 'prueba' })
+  const sobre = await sellado.seal({ a: 1 }, beto.encPub)
+  assert.equal(sellado.senderOf(sobre), ana.encPub)
+  assert.equal(sellado.senderOf({}), null)
+})

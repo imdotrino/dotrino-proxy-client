@@ -453,7 +453,7 @@ export class WebSocketProxyClient {
     // Con la llave puesta a mano se respeta tal cual: quien la pasa está diciendo que ya
     // sabe de quién es (se emparejaron), y un sobre vale para todos los destinatarios.
     if (peerEncPub) {
-      this._sendByPubkeyRaw(list, await this._seal(payload, peerEncPub), opts)
+      this._sendByPubkeyRaw(list, await this._seal(payload, peerEncPub, list.length === 1 ? list[0] : undefined), opts)
       return
     }
     // Sin ella, se averigua. UNA ENVOLTURA POR DESTINATARIO: cada uno tiene su llave, así
@@ -464,7 +464,7 @@ export class WebSocketProxyClient {
     // sin forma de saber cuál mitad.
     const llaves = await Promise.all(list.map(async (pk) => [pk, await this.encPubOf(pk)]))
     for (const [pk, encPub] of llaves) {
-      this._sendByPubkeyRaw([pk], await this._seal(payload, encPub), opts)
+      this._sendByPubkeyRaw([pk], await this._seal(payload, encPub, pk), opts)
     }
   }
 
@@ -495,7 +495,8 @@ export class WebSocketProxyClient {
       }
       peerEncPub = await this.encPubOf(peerPubkey)
     }
-    const sobre = await this._seal(payload, peerEncPub)
+    if (!peerPubkey && tokens.length === 1) peerPubkey = this.pubkeyOfToken(tokens[0]) || undefined
+    const sobre = await this._seal(payload, peerEncPub, peerPubkey)
     // Por `send`, no por `_sendRaw`: así sigue prefiriendo el canal directo si lo hay.
     this.send(tokens, sobre)
   }
@@ -560,9 +561,11 @@ export class WebSocketProxyClient {
   }
 
   /** Sella con lo que haya: la bóveda de la app (`sealing`) o las primitivas del pilar. */
-  async _seal (payload, peerEncPub) {
+  async _seal (payload, peerEncPub, peerPubkey) {
     if (!peerEncPub) throw errorCon('seal: missing peerEncPub', 'unsealed')
-    return this.sealing ? this.sealing.seal(payload, peerEncPub) : seal(payload, peerEncPub)
+    return this.sealing
+      ? this.sealing.seal(payload, peerEncPub, { publickey: peerPubkey })
+      : seal(payload, peerEncPub)
   }
 
   // ---------- llaves de cifrado ajenas ----------
@@ -692,7 +695,10 @@ export class WebSocketProxyClient {
         const opened = this.sealing
           ? await this.sealing.open(payload, meta)
           : await open(payload, this.myEncPrivateKey)
-        this._emit('message', from, opened, { ...meta, sealed: true })
+        // Quién selló (la llave de cifrado), si el sobre lo dice: es lo que autentica al
+        // remitente, porque solo quien tiene esa privada pudo armarlo.
+        const senderEncPub = this.sealing?.senderOf?.(payload) || null
+        this._emit('message', from, opened, { ...meta, sealed: true, ...(senderEncPub ? { senderEncPub } : {}) })
       } catch (e) {
         // Sealed to somebody else, or tampered with. Staying quiet is the point.
         this._emit('error', { type: 'undecipherable', from, error: e })

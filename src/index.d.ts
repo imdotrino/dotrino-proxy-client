@@ -30,9 +30,12 @@ export interface WebSocketProxyClientOptions {
 
 /** What an app plugs in when the encryption private key lives in the vault, not here. */
 export interface SealingBridge {
-  seal (message: any, peerEncPub: string): Promise<any>
+  /** `publickey` lets the vault expand the envelope to every device on that person's profile card. */
+  seal (message: any, peerEncPub: string, opts?: { publickey?: string }): Promise<any>
   open (envelope: any, meta?: any): Promise<any>
   isSealed (message: any): boolean
+  /** The encryption key of whoever sealed it; delivered as `meta.senderEncPub`. */
+  senderOf? (envelope: any): string | null
 }
 
 /** The signed statement that binds an encryption key to an identity. */
