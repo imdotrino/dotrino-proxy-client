@@ -1317,6 +1317,8 @@ export class WebSocketProxyClient {
         this._emit('error', {
           type: 'server',
           error: data.error,
+          // El código es el contrato; la frase es para las personas (CONVENCIONES §8.1).
+          code: data.code || null,
           id: data.id,
           messageId: data.messageId,
           limit_level: data.limit_level,
@@ -1384,7 +1386,9 @@ export class WebSocketProxyClient {
     const entry = this._pending.get(id)
     clearTimeout(entry.timer)
     this._pending.delete(id)
-    entry.reject(new Error(data.error || 'Server error'))
+    // Con su `code`: quien llama distingue los casos por él, no por la frase (que el proxio
+    // puede cambiar o traducir). Antes se perdía aquí y solo quedaba comparar el texto.
+    entry.reject(errorCon(data.error || 'Server error', data.code || null))
   }
 
   _emit (event, ...args) {
