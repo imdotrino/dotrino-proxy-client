@@ -26,6 +26,12 @@ export interface WebSocketProxyClientOptions {
    */
   encPubResolver?: (publickey: string) => Promise<string | null> | string | null
   acceptDirectFrom?: (token: string) => boolean
+  /**
+   * Which app this connection is (websocket-proxy >= 1.4.0): `messenger`, `vault`…
+   * Several apps on a phone share one key; with this the proxy rings only this app and hands
+   * it only its own queued messages. a-z, 0-9 and `-`, up to 32. Without it: everything.
+   */
+  app?: string
 }
 
 /** What an app plugs in when the encryption private key lives in the vault, not here. */
@@ -177,7 +183,7 @@ export class WebSocketProxyClient {
     toPubkeys: string | string[],
     payload: any,
     /** `ephemeral`: dropped if the recipient is offline. `quiet`: queued, but no push ring. */
-    opts?: { ephemeral?: boolean; quiet?: boolean }
+    opts?: { ephemeral?: boolean; quiet?: boolean; app?: string }
   ): void
   /**
    * Seal towards each recipient's encryption key and send by pubkey.
@@ -191,7 +197,7 @@ export class WebSocketProxyClient {
   sendSealed (
     toPubkeys: string | string[],
     payload: any,
-    opts?: { peerEncPub?: string; ephemeral?: boolean; quiet?: boolean }
+    opts?: { peerEncPub?: string; ephemeral?: boolean; quiet?: boolean; app?: string }
   ): Promise<void>
   /**
    * Seal and send BY TOKEN (which is what peers in a room use, and the only route that

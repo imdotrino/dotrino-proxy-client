@@ -46,6 +46,20 @@ function errorCon (mensaje, code) {
  *   - 'reconnecting'      (attempt, max)
  *   - 'reconnect_failed'  (attempts)
  */
+const APP_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
+
+/**
+ * Valida un nombre de app (`messenger`, `vault`…). Lo que no tiene forma LANZA: un nombre mal
+ * escrito haría que el timbre no sonara nunca en esa app, y eso no se ve.
+ */
+function checkApp (app) {
+  if (app == null) return null
+  if (typeof app !== 'string' || !APP_RE.test(app)) {
+    throw Object.assign(new Error(`app: "${app}" is not a valid app name (a-z, 0-9, -; up to 32)`), { code: 'bad-app' })
+  }
+  return app
+}
+
 export class WebSocketProxyClient {
   constructor (options = {}) {
     this.url = options.url || 'wss://proxy.dotrino.com'
@@ -68,6 +82,18 @@ export class WebSocketProxyClient {
      */
     this.requireSealed = options.requireSealed === true
     this.myEncPrivateKey = options.myEncPrivateKey || null
+
+    /**
+     * QUÉ APP ES ESTA (websocket-proxy ≥ 1.4.0). En un teléfono varias apps hablan con la
+     * MISMA llave (el perfil del teléfono), y el proxio necesita saber a cuál despertar y a
+     * cuál entregarle la cola: sin esto, la última en suscribirse se llevaba todos los
+     * timbres y la primera en conectarse, los mensajes de todas. Es ruteo, no contenido.
+     *
+     * Se dice al identificarse (solo baja lo suyo de la cola), al suscribirse al timbre (solo
+     * suena con lo suyo) y quien le escribe lo marca con `sendByPubkey(…, { app })`.
+     * Sin `app`, como antes: recibe todo.
+     */
+    this.app = checkApp(options.app)
 
     /**
      * MI llave de cifrado, la pública. Con ella puesta, `identify` anuncia al proxio
@@ -765,8 +791,14 @@ export class WebSocketProxyClient {
     }
     if (opts.ephemeral) msg.ephemeral = true
     if (opts.quiet) msg.quiet = true
+    // A QUÉ APP va (ruteo): el proxio timbra y entrega solo a esa app de ese aparato.
+    const app = checkApp(opts.app)
+    if (app) msg.app = app
     this._sendRaw(msg)
   }
+
+  /** `{ app }` para lo firmado (suscribirse al timbre), o nada si esta conexión no dijo cuál. */
+  _appField () { return this.app ? { app: this.app } : {} }
 
   /**
    * Pedir una CITA: el código corto que una persona lee, dicta o escanea para
@@ -858,6 +890,7 @@ export class WebSocketProxyClient {
   identify ({ data, signature, cert, acta, sign }) {
     if (!data || !signature) throw new Error('identify requires {data, signature}')
     const msg = { type: 'identify', data, signature }
+    if (this.app) msg.app = this.app
     if (cert) msg.cert = cert // "una identidad": el proxy bindea este token también bajo tu maestra M
     // Acta de perfil: el proxy la verifica (va firmada) y bindea también el `profileId`, así
     // escribirle a la PERSONA llega a cualquiera de sus dispositivos. Ver acta-de-perfil.md.
@@ -1019,7 +1052,7 @@ export class WebSocketProxyClient {
       })
     }
     const subJson = typeof sub.toJSON === 'function' ? sub.toJSON() : sub
-    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify(subJson), ts: Date.now() }
+    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify(subJson), ts: Date.now(), ...this._appField() }
     const signature = await normalizeSignature(sign, data)
     await this._request({ type: 'push-subscribe', data, signature }, 'push-subscribed')
     return sub
@@ -1033,7 +1066,7 @@ export class WebSocketProxyClient {
    */
   async registerPushToken ({ publicKey, sign, token, kind = 'fcm' } = {}) {
     if (!publicKey || typeof sign !== 'function' || !token) throw new Error('registerPushToken requires { publicKey, sign, token }')
-    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify({ kind, token }), ts: Date.now() }
+    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify({ kind, token }), ts: Date.now(), ...this._appField() }
     const signature = await normalizeSignature(sign, data)
     await this._request({ type: 'push-subscribe', data, signature }, 'push-subscribed')
     return { kind, token }
@@ -1058,7 +1091,7 @@ export class WebSocketProxyClient {
       } catch (_) { /* best-effort local */ }
     }
     if (publicKey && typeof sign === 'function') {
-      const data = { op: 'push-unsubscribe', publickey: publicKey, ts: Date.now() }
+      const data = { op: 'push-unsubscribe', publickey: publicKey, ts: Date.now(), ...this._appField() }
       const signature = await normalizeSignature(sign, data)
       await this._request({ type: 'push-unsubscribe', data, signature }, 'push-unsubscribed')
     }
