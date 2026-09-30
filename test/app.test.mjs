@@ -51,3 +51,11 @@ test('un nombre de app mal escrito LANZA: el timbre no sonaría nunca y no se ve
   const { c } = cliente()
   assert.throws(() => c.sendByPubkey('PEER', {}, { app: '../x' }), (e) => e.code === 'bad-app')
 })
+
+test('el singleton: la app que llega por updateConfig se aplica, y otra distinta lanza', () => {
+  const c = new WebSocketProxyClient({ autoReconnect: false })
+  c.updateConfig({ app: 'messenger' })
+  assert.equal(c.app, 'messenger')
+  c.updateConfig({ app: 'messenger' })
+  assert.throws(() => c.updateConfig({ app: 'vault' }), (e) => e.code === 'app-conflict')
+})

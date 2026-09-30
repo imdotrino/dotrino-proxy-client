@@ -283,6 +283,17 @@ export class WebSocketProxyClient {
     // cualquier otro módulo de la app la desactivara sin querer, y no hay ningún
     // motivo legítimo para hacerlo a mitad de una sesión.
     if (options.requireSealed === true) this.requireSealed = true
+
+    // La APP también, por la misma razón (el singleton): si se perdiera, esta app ni sonaría
+    // con lo suyo ni se llevaría solo su cola. Se fija una vez; otra distinta después es que
+    // dos apps comparten el cliente de la página, y eso es un error, no algo que resolver aquí.
+    if (options.app != null) {
+      const app = checkApp(options.app)
+      if (this.app && this.app !== app) {
+        throw Object.assign(new Error(`app: this client is already "${this.app}", not "${app}"`), { code: 'app-conflict' })
+      }
+      this.app = app
+    }
   }
 
   on (event, handler) {
