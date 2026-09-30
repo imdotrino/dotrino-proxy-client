@@ -153,6 +153,7 @@ export class WebSocketProxyClient {
     this._handlers = new Map()
     this._pending = new Map() // messageId -> { resolve, reject, timer }
     this._nextId = 1
+    this._tokenWatch = new Map() // messageId -> { token, sobre, peerPubkey, timer }
 
     this._rtc = this.enableWebRTC ? new WebRTCManager({
       getSelfToken: () => this.token,
@@ -497,8 +498,51 @@ export class WebSocketProxyClient {
     }
     if (!peerPubkey && tokens.length === 1) peerPubkey = this.pubkeyOfToken(tokens[0]) || undefined
     const sobre = await this._seal(payload, peerEncPub, peerPubkey)
+    if (tokens.length === 1 && peerPubkey) { this._sendToTokenOrQueue(tokens[0], sobre, peerPubkey); return }
     // Por `send`, no por `_sendRaw`: así sigue prefiriendo el canal directo si lo hay.
     this.send(tokens, sobre)
+  }
+
+  /**
+   * UN TOKEN MUERTO NO SE TRAGA EL MENSAJE. Un token es una conexión, y cuando la otra punta
+   * reinicia la app su token deja de existir; la app que lo tenía apuntado sigue mandando ahí
+   * y el proxio contesta `message_sent` con ese token en `failed` (solo contesta si algo
+   * falla). Antes nadie escuchaba esa respuesta: el mensaje se daba por enviado y se perdía.
+   *
+   * Si sabemos de quién es el token, el MISMO sobre —ya va sellado a esa identidad— sale por
+   * su pubkey: la cola de 24 h del proxio, que además timbra su teléfono. Y se avisa con
+   * `token_gone` para que la app deje de usar ese token. No bloquea a nadie: se manda ya y
+   * el arreglo, si hace falta, llega detrás.
+   */
+  _sendToTokenOrQueue (token, sobre, peerPubkey) {
+    if (this.requireSealed && !this._isSealed(sobre)) {
+      throw errorCon('requireSealed: refusing to send a directed message in the clear — use sendSealedTo()', 'unsealed')
+    }
+    const messageStr = JSON.stringify(sobre)
+    if (this._rtc && this._rtc.trySend(token, messageStr)) return
+    const id = `msg_${this._nextId++}`
+    const timer = setTimeout(() => this._tokenWatch.delete(id), 15000)
+    timer.unref?.()
+    this._tokenWatch.set(id, { token, sobre, peerPubkey, timer })
+    try {
+      this._sendRaw({ to: [token], message: messageStr, id })
+    } catch (e) {
+      clearTimeout(timer)
+      this._tokenWatch.delete(id)
+      throw e
+    }
+    this._upgradeDirect([token])
+  }
+
+  /** `message_sent` con fallos: lo que iba a un token que ya no existe sale por pubkey. */
+  _tokenFailed (data) {
+    const w = data.id && this._tokenWatch.get(data.id)
+    if (!w) return
+    clearTimeout(w.timer)
+    this._tokenWatch.delete(data.id)
+    if (!Array.isArray(data.failed) || !data.failed.includes(w.token)) return
+    this._emit('token_gone', w.token, w.peerPubkey)
+    try { this._sendByPubkeyRaw([w.peerPubkey], w.sobre) } catch (e) { this._emit('error', { type: 'client', error: e.message, code: e.code || null }) }
   }
 
   // ---------- el saludo: de quién es este token ----------
@@ -1298,8 +1342,11 @@ export class WebSocketProxyClient {
       case 'channels_list':
       case 'channel_count':
       case 'disconnect_confirmation':
-      case 'identified':
       case 'message_sent':
+        this._tokenFailed(data)
+        this._resolvePending(data, type)
+        break
+      case 'identified':
       case 'push-config':
       case 'push-subscribed':
       case 'push-unsubscribed':
