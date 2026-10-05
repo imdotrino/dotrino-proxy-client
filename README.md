@@ -88,6 +88,29 @@ Notas:
 - Si el proxy responde `enabled: false` (sin TURN configurado), todo sigue STUN-only con fallback al proxy: no hay que hacer nada.
 - El proxy exige `identify` previo en la misma conexión: tras una reconexión, vuelve a llamar a `identify` antes de que toque renovar.
 
+## Estadísticas de red (0.28.0+)
+
+`await client.stats()` dice cuánto entró y salió, **por conexión**, y **por qué camino**:
+
+```js
+const s = await client.stats()
+// s.proxy  → { bytesIn, bytesOut, framesIn, framesOut }   el WebSocket del proxio entero
+// s.peers  → [{ token, pubkey, route, bytesIn, bytesOut, msgsIn, msgsOut, lastAt }]
+//   route:  'proxy' | 'connecting' | 'failed' | 'direct' | 'turn' | 'webrtc'
+//   bytesIn / bytesOut: { proxy, direct, turn, webrtc }  — separados por el camino real
+```
+
+- `direct` / `turn` sale del par de candidatos que eligió ICE (`getStats`): si una de las
+  dos puntas es `relay`, hay TURN en medio. Si la implementación no lo dice, `webrtc` — no
+  se adivina.
+- Son bytes de **payload** (UTF-8). Las cabeceras de TLS/DTLS/SCTP no se ven desde aquí.
+- La señalización de WebRTC y el saludo cuentan como `proxy`: es por donde van.
+
+**Lo enseña el topbar sin cablear nada** (`@dotrino/topbar` ≥ 0.14.0): todo cliente que
+conecta se apunta en un registro de la página (`globalThis[Symbol.for('dotrino.transports')]`,
+evento `dotrino-transports`) y sale al hacer `close()`. `listTransports()` lo lee. Va en
+`globalThis` y no en el módulo porque una app puede llevar dos copias del paquete.
+
 ## Cifrado extremo a extremo de mensajes dirigidos (0.13.0+)
 
 **El proxy no cifra el contenido.** `sendByPubkey` enruta por pubkey y manda el

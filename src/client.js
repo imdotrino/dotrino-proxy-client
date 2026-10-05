@@ -2,6 +2,7 @@ import { buildSignedChannel, getPublicKeyJwk, signData, samePubkey } from './sig
 import { seal, open, isSealed } from './sealing.js'
 import { buildEncPubStatement, readEncPubStatement, isEncPub } from './encpub.js'
 import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS, loadNodePeerConnection, resolvePeerConnection } from './webrtc.js'
+import { TrafficStats, utf8Length, registerTransport, unregisterTransport } from './stats.js'
 
 /**
  * Error con un `code` estable.
@@ -180,6 +181,7 @@ export class WebSocketProxyClient {
     this._pending = new Map() // messageId -> { resolve, reject, timer }
     this._nextId = 1
     this._tokenWatch = new Map() // messageId -> { token, sobre, peerPubkey, timer }
+    this._traffic = new TrafficStats()
 
     this._rtc = this.enableWebRTC ? new WebRTCManager({
       getSelfToken: () => this.token,
@@ -192,6 +194,8 @@ export class WebSocketProxyClient {
         if (event === 'webrtc_close') this._rtcTried?.delete(args[0])
         this._emit(event, ...args)
       },
+      count: (dir, token, bytes, route) =>
+        this._traffic.peer(dir, route, { token, pubkey: this._tokenPubkeys.get(token) || null }, bytes),
       config: this.iceServers ? { iceServers: this.iceServers } : null
     }) : null
     // QUIÉN PUEDE HACERTE NEGOCIAR UN CANAL DIRECTO. Sin política, cualquiera que sepa
@@ -229,6 +233,7 @@ export class WebSocketProxyClient {
 
   close () {
     this.autoReconnect = false
+    unregisterTransport(this)
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer)
       this._reconnectTimer = null
@@ -1189,6 +1194,7 @@ export class WebSocketProxyClient {
   // ---------- internals ----------
 
   _open () {
+    registerTransport(this)
     const ws = new WebSocket(this.url)
     this.ws = ws
     // `ws !== this.ws` ⇒ es un socket que ya abandonamos (p.ej. por heartbeat
@@ -1203,6 +1209,7 @@ export class WebSocketProxyClient {
     ws.addEventListener('message', (ev) => {
       if (ws !== this.ws) return
       this._noteActivity()           // cualquier frame entrante prueba que está vivo
+      this._traffic.frame('in', utf8Length(ev.data))
       this._handleFrame(ev.data)
     })
     ws.addEventListener('error', (err) => {
@@ -1268,7 +1275,7 @@ export class WebSocketProxyClient {
   _heartbeatTick () {
     if (!this._connected || !this.ws) return
     if (this._hbDeadTimer) return // ya hay un ping en vuelo esperando respuesta
-    try { this.ws.send(JSON.stringify({ type: 'ping' })) }
+    try { const ping = JSON.stringify({ type: 'ping' }); this.ws.send(ping); this._traffic.frame('out', ping.length) }
     catch (_) { this._onHeartbeatDead(); return }
     this._hbDeadTimer = setTimeout(() => this._onHeartbeatDead(), this.heartbeatTimeout)
   }
@@ -1345,6 +1352,7 @@ export class WebSocketProxyClient {
         if (typeof message === 'string') {
           try { parsed = JSON.parse(message) } catch (_) { parsed = null }
         }
+        this._traffic.peer('in', 'proxy', { token: from || null, pubkey: from_publickey || this._tokenPubkeys.get(from) || null }, utf8Length(message))
         if (this._rtc && parsed && parsed.t === RTC_TAG) {
           this._rtc.handleIncoming(from, parsed)
           break
@@ -1439,7 +1447,65 @@ export class WebSocketProxyClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw errorCon('WebSocket not connected', 'NOT_CONNECTED')
     }
-    this.ws.send(JSON.stringify(frame))
+    const texto = JSON.stringify(frame)
+    this.ws.send(texto)
+    this._countOut(frame, texto)
+  }
+
+  /** Cuenta un frame que sale por el proxio, y a quién iba. */
+  _countOut (frame, texto) {
+    this._traffic.frame('out', utf8Length(texto))
+    if (typeof frame.message !== 'string') return
+    const bytes = utf8Length(frame.message)
+    for (const token of Array.isArray(frame.to) ? frame.to : []) {
+      this._traffic.peer('out', 'proxy', { token, pubkey: this._tokenPubkeys.get(token) || null }, bytes)
+    }
+    for (const pubkey of Array.isArray(frame.to_publickey) ? frame.to_publickey : []) {
+      this._traffic.peer('out', 'proxy', { pubkey }, bytes)
+    }
+  }
+
+  /**
+   * ESTADÍSTICAS DE RED: cuánto entró y salió, por conexión, y por qué camino.
+   *
+   * `route` es por dónde va AHORA cada conexión: `proxy`, `connecting` (por el proxio
+   * mientras se negocia WebRTC), `direct` o `turn` (WebRTC, sin o con relevo), `webrtc`
+   * (canal abierto sin poder saber cuál) o `failed` (WebRTC no salió: sigue por el proxio).
+   * Los bytes van separados por el camino por el que pasaron de verdad.
+   *
+   * Los bytes son de payload (UTF-8), no del cable: las cabeceras de TLS/DTLS no se ven
+   * desde aquí.
+   */
+  async stats () {
+    const t = this._traffic
+    const routes = this._rtc ? await this._rtc.describe() : new Map()
+    const peers = [...t.peers.values()].map((p) => {
+      const pubkey = p.pubkey || (p.token && this._tokenPubkeys.get(p.token)) || null
+      const rtc = p.token ? routes.get(p.token) : null
+      return {
+        token: p.token,
+        pubkey,
+        route: rtc && rtc !== 'failed' && rtc !== 'connecting' ? rtc : (rtc || 'proxy'),
+        bytesIn: { ...p.bytesIn },
+        bytesOut: { ...p.bytesOut },
+        msgsIn: p.msgsIn,
+        msgsOut: p.msgsOut,
+        firstAt: p.firstAt,
+        lastAt: p.lastAt
+      }
+    }).sort((a, b) => b.lastAt - a.lastAt)
+    return {
+      url: this.url,
+      app: this.app,
+      node: this.node || null,
+      token: this.token,
+      publickey: this.myPublickey,
+      connected: this._connected,
+      webrtc: !!this._rtc,
+      since: t.since,
+      proxy: { ...t.proxy },
+      peers
+    }
   }
 
   _request (frame, expectedType, channelKey) {

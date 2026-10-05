@@ -157,6 +157,43 @@ export interface ScheduledPush {
   payload: Record<string, unknown> | null
 }
 
+/** Por dónde va una conexión. `connecting`: por el proxio mientras se negocia WebRTC; `failed`: WebRTC no salió. */
+export type TrafficRoute = 'proxy' | 'connecting' | 'failed' | 'direct' | 'turn' | 'webrtc'
+
+/** Bytes de payload (UTF-8) por el camino por el que pasaron. */
+export interface TrafficByPath { proxy: number; direct: number; turn: number; webrtc: number }
+
+export interface PeerTraffic {
+  token: string | null
+  pubkey: string | null
+  route: TrafficRoute
+  bytesIn: TrafficByPath
+  bytesOut: TrafficByPath
+  msgsIn: number
+  msgsOut: number
+  firstAt: number
+  lastAt: number
+}
+
+export interface TransportStats {
+  url: string
+  app: string | null
+  node: string | null
+  token: string | null
+  publickey: string | null
+  connected: boolean
+  webrtc: boolean
+  since: number
+  /** El WebSocket del proxio entero: frames y bytes, incluido lo que no va a ninguna conexión. */
+  proxy: { bytesIn: number; bytesOut: number; framesIn: number; framesOut: number }
+  peers: PeerTraffic[]
+}
+
+/** Los clientes conectados en esta página (o proceso), de cualquier copia del paquete. */
+export function listTransports (): WebSocketProxyClient[]
+/** `direct` o `turn` según el par de candidatos ICE elegido; `null` si no se puede saber. */
+export function routeOf (pc: any): Promise<'direct' | 'turn' | null>
+
 export class WebSocketProxyClient {
   constructor (options?: WebSocketProxyClientOptions)
   readonly isConnected: boolean
@@ -259,6 +296,8 @@ export class WebSocketProxyClient {
   listScheduledPushes (opts: { publicKey: string; sign: SignFn }): Promise<ScheduledPush[]>;
   connectWebRTC (token: string): Promise<void>
   isWebRTCOpen (token: string): boolean
+  /** Cuánto entró y salió, por conexión, y por qué camino (proxio, WebRTC directo o por TURN). */
+  stats (): Promise<TransportStats>
   getPublicKey (): Promise<string>
   sign (data: any): Promise<string>
 }
