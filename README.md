@@ -64,6 +64,18 @@ Notas:
 - Los handlers de `'message'` reciben un tercer argumento con `via: 'webrtc' | 'proxy'` para distinguir el transporte si lo necesitas.
 - Pasa `enableWebRTC: false` para volver al comportamiento previo (todo por proxy).
 
+### Por token, con lo que la app ya cifró (0.29.0+)
+
+`sendByPubkey` **nunca** sube a WebRTC: la cola es del proxio. Una app con su propio canal
+de sesión (cifra ella, como `@dotrino/remote-agent`) que quiera ir directo manda por token:
+
+```js
+client.sendToOrQueue(tokenDelOtro, sobreYaCifrado, { peerPubkey })
+```
+
+Sube al canal directo si lo hay; si el token murió, el mismo mensaje sale por `peerPubkey`
+y salta `token_gone`. Con `requireSealed` se niega igual que `send`.
+
 ## TURN temporal (0.7.0+)
 
 El proxy actúa como **administrador de credenciales TURN** (Cloudflare): la llave

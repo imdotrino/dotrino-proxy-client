@@ -45,3 +45,29 @@ test('si el token vive, el proxio no contesta y no sale nada más', async () => 
   c._handleFrame(JSON.stringify({ type: 'message_sent', id: 'msg_999', failed: ['VIVO'] }))
   assert.equal(c.enviados.length, 1)
 })
+
+// Lo que la app ya cifró por su cuenta (un canal de sesión propio) usa la misma red.
+test('sendToOrQueue: por token, y a la cola por pubkey si el token murió', () => {
+  const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false })
+  c.enviados = []
+  c._sendRaw = (frame) => { c.enviados.push(frame) }
+  c.ws = { readyState: 1 }
+  c.token = 'MIO'
+  const gone = []
+  c.on('token_gone', (t, pk) => gone.push([t, pk]))
+
+  c.sendToOrQueue('VIEJO', { type: 'ra.data', env: 'x' }, { peerPubkey: 'PK-OTRO' })
+  const [porToken] = c.enviados
+  assert.deepEqual(porToken.to, ['VIEJO'])
+  c._handleFrame(JSON.stringify({ type: 'message_sent', id: porToken.id, failed: ['VIEJO'] }))
+  assert.deepEqual(c.enviados[1].to_publickey, ['PK-OTRO'])
+  assert.equal(c.enviados[1].message, porToken.message)
+  assert.deepEqual(gone, [['VIEJO', 'PK-OTRO']])
+})
+
+test('sendToOrQueue: sin saber de quién es el token no manda, y con requireSealed se niega', () => {
+  const c = cliente()
+  assert.throws(() => c.sendToOrQueue('T', { a: 1 }, {}), (e) => e.code === 'no-peer-identity')
+  assert.throws(() => c.sendToOrQueue('T', { a: 1 }, { peerPubkey: 'PK' }), (e) => e.code === 'unsealed')
+  assert.equal(c.enviados.length, 0)
+})

@@ -246,6 +246,12 @@ export class WebSocketProxyClient {
     payload: any,
     opts: { peerPubkey?: string; peerEncPub?: string }
   ): Promise<void>
+  /**
+   * Send BY TOKEN something the app already encrypted itself (its own session channel).
+   * Prefers the direct channel; if the token is dead the same message goes out by
+   * `peerPubkey` and `token_gone` fires. `sendByPubkey` never upgrades to WebRTC.
+   */
+  sendToOrQueue (token: string, payload: any, opts: { peerPubkey: string }): void
   /** Announce my encryption key, signed. `identify` does it on its own when `myEncPub` is set. */
   announceEncPub (args: { publickey: string; encPub: string; sign: SignFn }): Promise<string>
   /** An identity's encryption key, verified. Never returns null: it resolves or throws. */
