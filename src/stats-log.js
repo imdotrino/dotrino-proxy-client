@@ -40,7 +40,11 @@ export function formatStats (s, opts = {}) {
   // QUIÉN CONTESTÓ Y QUIÉN NO. Un sondeo (un ping a cada aparato del acta) deja una entrada
   // por destinatario aunque nadie responda: esas no son conexiones y van resumidas
   // (`unanswered`), igual que en el informe del topbar y de las apps nativas.
-  const talking = s.peers.filter((p) => p.msgsIn > 0)
+  // `unknown`: quien nos escribió, nunca recibió respuesta y no sabemos su llave (otro aparato
+  // sondeando qué máquinas están encendidas). Tampoco es una conexión.
+  const isUnknown = (p) => p.msgsIn > 0 && !(p.msgsOut > 0) && !p.pubkey
+  const unknown = s.peers.filter(isUnknown)
+  const talking = s.peers.filter((p) => p.msgsIn > 0 && !isUnknown(p))
   const silent = s.peers.filter((p) => !(p.msgsIn > 0))
   const routes = {}
   for (const p of talking) routes[p.route] = (routes[p.route] || 0) + 1
@@ -50,7 +54,8 @@ export function formatStats (s, opts = {}) {
     ` ws.in=${s.proxy.bytesIn} ws.out=${s.proxy.bytesOut}` +
     ` ${pairs('in', sum(s.peers, 'bytesIn'))} ${pairs('out', sum(s.peers, 'bytesOut'))}` +
     ` peers=${talking.length} routes=${routeList}` +
-    (silent.length ? ` unanswered=${silent.length} unanswered.out=${silent.reduce((n, p) => n + PATHS.reduce((m, k) => m + p.bytesOut[k], 0), 0)}` : '')
+    (silent.length ? ` unanswered=${silent.length} unanswered.out=${silent.reduce((n, p) => n + PATHS.reduce((m, k) => m + p.bytesOut[k], 0), 0)}` : '') +
+    (unknown.length ? ` unknown=${unknown.length} unknown.in=${unknown.reduce((n, p) => n + PATHS.reduce((m, k) => m + p.bytesIn[k], 0), 0)}` : '')
   ]
   for (const p of talking) {
     lines.push(
