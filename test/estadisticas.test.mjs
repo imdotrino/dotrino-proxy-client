@@ -126,3 +126,18 @@ test('logStats: escribe el camino real, calla si nada cambió y no deja la pubke
   assert.match(lines[2], /out\.direct=41/)
   c.close()
 })
+
+test('logStats: a quien solo se le mandó un ping no se le cuenta como conexión', async () => {
+  const { c } = await conectado()
+  c._traffic.peer('out', 'proxy', { pubkey: 'PK-APAGADO-1' }, 37)
+  c._traffic.peer('out', 'proxy', { pubkey: 'PK-APAGADO-2' }, 37)
+  c._traffic.peer('out', 'proxy', { token: 'peer-vivo' }, 37)
+  c._traffic.peer('in', 'proxy', { token: 'peer-vivo' }, 41)
+  const lines = []
+  const net = logStats({ log: (l) => lines.push(l), everyMs: 3600000 })
+  await net.stop()
+  assert.equal(lines.length, 2, 'el resumen y UNA conexión: la que contestó')
+  assert.match(lines[0], /peers=1 routes=proxy=1 unanswered=2 unanswered\.out=74$/)
+  assert.match(lines[1], /peer=peer-vivo /)
+  c.close()
+})
