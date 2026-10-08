@@ -123,6 +123,30 @@ conecta se apunta en un registro de la página (`globalThis[Symbol.for('dotrino.
 evento `dotrino-transports`) y sale al hacer `close()`. `listTransports()` lo lee. Va en
 `globalThis` y no en el módulo porque una app puede llevar dos copias del paquete.
 
+### En un servicio de Node: al log (0.30.0+)
+
+Un daemon no tiene topbar. `logStats()` escribe lo mismo, una línea cada tanto, con el
+`log` que el servicio ya usa. Lee el mismo registro de clientes, así que no hay que pasarle
+ninguno:
+
+```js
+import { logStats } from '@dotrino/proxy-client'
+
+const net = logStats({ label: 'terminal-agent', log: console.log, everyMs: 5 * 60 * 1000 })
+// al apagar: await net.stop()   (escribe una última vez)
+```
+
+```
+[net] terminal-agent url=wss://proxy.dotrino.com connected=yes webrtc=on ws.in=5120 ws.out=4310 in.proxy=310 in.direct=48211 in.turn=0 in.webrtc=0 out.proxy=295 out.direct=910332 out.turn=0 out.webrtc=0 peers=1 routes=direct=1
+[net] terminal-agent   peer=AB12 route=direct in.proxy=310 in.direct=48211 ... msgs.in=412 msgs.out=977
+```
+
+- **Solo escribe si algo cambió**: un servicio quieto no llena el log.
+- Los contadores son **acumulados** desde que arrancó el cliente; para un tramo, se restan
+  dos líneas. Que `in.direct`/`out.direct` suban es la confirmación de que el tráfico va
+  por WebRTC; si solo sube `*.proxy`, sigue dando la vuelta.
+- De la otra punta sale **solo el token** (efímero), nunca la pubkey.
+
 ## Cifrado extremo a extremo de mensajes dirigidos (0.13.0+)
 
 **El proxy no cifra el contenido.** `sendByPubkey` enruta por pubkey y manda el

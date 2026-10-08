@@ -9,7 +9,7 @@
 import { FakeWebSocket } from './_entorno.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { WebSocketProxyClient, listTransports, routeOf } from '../src/index.js'
+import { WebSocketProxyClient, listTransports, routeOf, logStats } from '../src/index.js'
 import { utf8Length } from '../src/stats.js'
 
 const tick = () => new Promise((r) => setImmediate(r))
@@ -102,4 +102,27 @@ test('routeOf: relay en cualquier punta es TURN; si no, directo; sin datos, no s
   assert.equal(await routeOf({ getStats: async () => informe('srflx', 'relay') }), 'turn')
   assert.equal(await routeOf({ getStats: async () => new Map() }), null)
   assert.equal(await routeOf({}), null)
+})
+
+test('logStats: escribe el camino real, calla si nada cambió y no deja la pubkey en el log', async () => {
+  const { c } = await conectado()
+  c._tokenPubkeys.set('peer-9', 'PK-SECRETA')
+  c._rtc = { describe: async () => new Map([['peer-9', 'direct']]), closeAll () {} }
+  c._traffic.peer('out', 'direct', { token: 'peer-9' }, 40)
+  c._traffic.peer('in', 'proxy', { token: 'peer-9' }, 5)
+  const lines = []
+  const net = logStats({ log: (l) => lines.push(l), label: 'svc', everyMs: 3600000 })
+  await net.flush()
+  assert.equal(lines.length, 2, 'resumen + una conexión')
+  assert.match(lines[0], /^\[net\] svc url=ws:\/\/x connected=yes webrtc=on /)
+  assert.match(lines[0], /in\.proxy=5 .*out\.direct=40 .*peers=1 routes=direct=1/)
+  assert.match(lines[1], /peer=peer-9 route=direct .*msgs\.in=1 msgs\.out=1/)
+  assert.ok(!lines.join('\n').includes('PK-SECRETA'))
+  await net.flush()
+  assert.equal(lines.length, 2, 'sin cambios no se repite')
+  c._traffic.peer('out', 'direct', { token: 'peer-9' }, 1)
+  await net.stop()
+  assert.equal(lines.length, 4, 'al parar escribe lo que cambió')
+  assert.match(lines[2], /out\.direct=41/)
+  c.close()
 })

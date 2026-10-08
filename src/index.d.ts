@@ -194,6 +194,17 @@ export function listTransports (): WebSocketProxyClient[]
 /** `direct` o `turn` según el par de candidatos ICE elegido; `null` si no se puede saber. */
 export function routeOf (pc: any): Promise<'direct' | 'turn' | null>
 
+/** Las líneas de log de UN cliente: el resumen y una por conexión (solo el token, nunca la pubkey). */
+export function formatStats (s: TransportStats, opts?: { label?: string }): string[]
+/**
+ * Escribe al log las estadísticas de todos los clientes del proceso cada `everyMs`
+ * (5 min por defecto), solo si cambiaron. Para servicios de Node, que no tienen topbar.
+ */
+export function logStats (opts?: { log?: (line: string) => void; everyMs?: number; label?: string }): {
+  flush: () => Promise<void>
+  stop: () => Promise<void>
+}
+
 export class WebSocketProxyClient {
   constructor (options?: WebSocketProxyClientOptions)
   readonly isConnected: boolean
