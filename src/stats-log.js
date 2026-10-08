@@ -31,7 +31,7 @@ const pairs = (prefix, o) => PATHS.map((k) => `${prefix}.${k}=${o[k]}`).join(' '
  * Las líneas de UN cliente, a partir de lo que devuelve `client.stats()`.
  * La primera es el resumen; después, una por conexión.
  *
- * @param {import('./index.d.ts').TransportStats} s
+ * @param {object} s lo que devuelve `client.stats()` (`TransportStats` en los tipos)
  * @param {{ label?: string }} [opts]
  * @returns {string[]}
  */
