@@ -263,6 +263,13 @@ export class WebSocketProxyClient {
    * `peerPubkey` and `token_gone` fires. `sendByPubkey` never upgrades to WebRTC.
    */
   sendToOrQueue (token: string, payload: any, opts: { peerPubkey: string }): void
+  /** Ask the proxy for a short pairing code that points at this connection. It expires in minutes and burns on use. */
+  requestPairingCode (opts?: { ttlMs?: number }): Promise<{ code: string; expiresAt: number; node: string }>
+  /**
+   * Redeem someone else's pairing code: which connection (and which identity) it points at.
+   * Resolves with `ok: false` and a `code` when the code is unknown or expired.
+   */
+  redeemPairingCode (code: string): Promise<{ ok: boolean; instance?: string; publickey?: string | null; code?: string; error?: string }>
   /** Announce my encryption key, signed. `identify` does it on its own when `myEncPub` is set. */
   announceEncPub (args: { publickey: string; encPub: string; sign: SignFn }): Promise<string>
   /** An identity's encryption key, verified. Never returns null: it resolves or throws. */
