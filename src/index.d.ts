@@ -196,6 +196,17 @@ export function routeOf (pc: any): Promise<'direct' | 'turn' | null>
 
 /** Las líneas de log de UN cliente: el resumen y una por conexión (solo el token, nunca la pubkey). */
 export function formatStats (s: TransportStats, opts?: { label?: string }): string[]
+/** Los peers que contestaron, y resumidos los que no (`silent`) y los remitentes sin identificar (`unknown`). */
+export function splitPeers (peers: TransportStats['peers']): {
+  talking: TransportStats['peers']
+  silent: { count: number; bytesOut: number; msgsOut: number }
+  unknown: { count: number; bytesIn: number; msgsIn: number }
+}
+/** El informe de red como texto para una persona: las mismas líneas que el topbar y las apps nativas. */
+export function netReport (
+  list: Array<TransportStats | { url: string; error: string }>,
+  opts?: { label?: (pubkey: string) => string | Promise<string>; now?: Date }
+): Promise<string>
 /**
  * Escribe al log las estadísticas de todos los clientes del proceso cada `everyMs`
  * (5 min por defecto), solo si cambiaron. Para servicios de Node, que no tienen topbar.

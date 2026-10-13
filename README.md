@@ -147,6 +147,17 @@ const net = logStats({ label: 'terminal-agent', log: console.log, everyMs: 5 * 6
   por WebRTC; si solo sube `*.proxy`, sigue dando la vuelta.
 - De la otra punta sale **solo el token** (efímero), nunca la pubkey.
 
+Para enseñárselo a una persona que lo pidió (una orden, una pantalla), `netReport` da el
+informe de texto que usan el modal del topbar y las apps nativas. Nombra cada aparato con lo que
+devuelva `label` (su id, su nombre); sin él sale `?`, nunca un trozo de la llave:
+
+```js
+import { listTransports, netReport } from '@dotrino/proxy-client'
+
+const list = await Promise.all(listTransports().map((c) => c.stats()))
+console.log(await netReport(list, { label: (pubkey) => nameOf(pubkey) }))
+```
+
 ## Cifrado extremo a extremo de mensajes dirigidos (0.13.0+)
 
 **El proxy no cifra el contenido.** `sendByPubkey` enruta por pubkey y manda el
