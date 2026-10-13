@@ -1,7 +1,7 @@
 import { buildSignedChannel, getPublicKeyJwk, signData, samePubkey } from './signature.js'
 import { seal, open, isSealed } from './sealing.js'
 import { buildEncPubStatement, readEncPubStatement, isEncPub } from './encpub.js'
-import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS, loadNodePeerConnection, resolvePeerConnection } from './webrtc.js'
+import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS, loadNodePeerConnection, resolvePeerConnection, pinTurnToIPv4 } from './webrtc.js'
 import { TrafficStats, utf8Length, registerTransport, unregisterTransport } from './stats.js'
 
 /**
@@ -1004,7 +1004,9 @@ export class WebSocketProxyClient {
     }
     const res = await this.getTurnCredentials({ publicKey, sign })
     if (!res.enabled || !res.iceServers) return false
-    this._rtc.setIceServers([...res.iceServers, ...DEFAULT_ICE_SERVERS])
+    // En Node el relevo va con su dirección IPv4 ya escrita (ver `pinTurnToIPv4`).
+    const turnServers = await pinTurnToIPv4(res.iceServers)
+    this._rtc.setIceServers([...turnServers, ...DEFAULT_ICE_SERVERS])
     // Renovar con margen antes de expirar (mínimo 30 s entre renovaciones)
     const refreshIn = Math.max(30000, (res.expiresAt || 0) - Date.now() - 60000)
     this._turnTimer = setTimeout(() => {
