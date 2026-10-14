@@ -54,6 +54,7 @@ export function formatStats (s, opts = {}) {
     ` ws.in=${s.proxy.bytesIn} ws.out=${s.proxy.bytesOut}` +
     ` ${pairs('in', sum(s.peers, 'bytesIn'))} ${pairs('out', sum(s.peers, 'bytesOut'))}` +
     ` peers=${talking.length} routes=${routeList}` +
+    (s.turn ? ` turn=${s.turn.active ? 'on' : `off(${s.turn.code || '?'})`}` : '') +
     (silent.length ? ` unanswered=${silent.length} unanswered.out=${silent.reduce((n, p) => n + PATHS.reduce((m, k) => m + p.bytesOut[k], 0), 0)}` : '') +
     (unknown.length ? ` unknown=${unknown.length} unknown.in=${unknown.reduce((n, p) => n + PATHS.reduce((m, k) => m + p.bytesIn[k], 0), 0)}` : '')
   ]

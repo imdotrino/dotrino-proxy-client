@@ -1002,8 +1002,32 @@ export class WebSocketProxyClient {
       clearTimeout(this._turnTimer)
       this._turnTimer = null
     }
-    const res = await this.getTurnCredentials({ publicKey, sign })
-    if (!res.enabled || !res.iceServers) return false
+    let res
+    try {
+      res = await this.getTurnCredentials({ publicKey, sign })
+    } catch (e) {
+      if (e?.status !== 429) throw e
+      // 429: EL PROXIO DICE «AHORA NO» (tope diario de tráfico, cuota por hora, o no puede
+      // leer el consumo). No es un fallo: se sigue por el proxio, que es el escalón que
+      // siempre funciona. Se quita el relevo que hubiera (sus credenciales ya no se
+      // renuevan), se dice por un evento y en `stats()`, y se vuelve a pedir cuando el
+      // proxio dice que se puede — si no, un aparato que pasó por un día con el tope
+      // alcanzado se quedaría sin relevo hasta su siguiente reconexión.
+      this._rtc.setIceServers(DEFAULT_ICE_SERVERS)
+      const retryAfterMs = Math.max(60000, Number(e.retryAfterMs) || 0)
+      this._turn = { active: false, code: e.code || null, retryAt: Date.now() + retryAfterMs }
+      this._emit('turn_unavailable', { code: e.code || null, retryAfterMs })
+      this._turnTimer = setTimeout(() => {
+        this._turnTimer = null
+        this.enableTurn({ publicKey, sign }).catch(() => {})
+      }, retryAfterMs)
+      return false
+    }
+    if (!res.enabled || !res.iceServers) {
+      this._turn = { active: false, code: 'turn-disabled', retryAt: null }
+      return false
+    }
+    this._turn = { active: true, code: null, expiresAt: res.expiresAt || null }
     // En Node el relevo va con su dirección IPv4 ya escrita (ver `pinTurnToIPv4`).
     const turnServers = await pinTurnToIPv4(res.iceServers)
     this._rtc.setIceServers([...turnServers, ...DEFAULT_ICE_SERVERS])
@@ -1525,6 +1549,8 @@ export class WebSocketProxyClient {
       publickey: this.myPublickey,
       connected: this._connected,
       webrtc: !!this._rtc,
+      // El relevo: null si nunca se pidió; si no, activo o por qué no (`code`, `retryAt`).
+      turn: this._turn ? { ...this._turn } : null,
       since: t.since,
       proxy: { ...t.proxy },
       peers
@@ -1568,7 +1594,11 @@ export class WebSocketProxyClient {
     this._pending.delete(id)
     // Con su `code`: quien llama distingue los casos por él, no por la frase (que el proxio
     // puede cambiar o traducir). Antes se perdía aquí y solo quedaba comparar el texto.
-    entry.reject(errorCon(data.error || 'Server error', data.code || null))
+    const e = errorCon(data.error || 'Server error', data.code || null)
+    // «Ahora no» (429) y cuánto esperar, cuando el proxio lo dice.
+    if (data.status) e.status = data.status
+    if (data.retry_after_ms) e.retryAfterMs = data.retry_after_ms
+    entry.reject(e)
   }
 
   _emit (event, ...args) {

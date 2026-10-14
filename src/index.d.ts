@@ -80,6 +80,8 @@ export type ProxyEvent =
   | 'reconnect_failed'
   | 'abuse_notice'
   | 'webrtc_open'
+  /** El proxio no da relevo ahora (429): se sigue por el proxio. `{ code, retryAfterMs }`. */
+  | 'turn_unavailable'
   | 'webrtc_close'
   | 'unknown'
 
@@ -183,6 +185,8 @@ export interface TransportStats {
   publickey: string | null
   connected: boolean
   webrtc: boolean
+  /** El relevo TURN: null si nunca se pidió; si no, activo o por qué no (`turn-daily-cap`, `turn-quota`, `turn-usage-unknown`, `turn-disabled`). */
+  turn: { active: boolean; code: string | null; retryAt?: number | null; expiresAt?: number | null } | null
   since: number
   /** El WebSocket del proxio entero: frames y bytes, incluido lo que no va a ninguna conexión. */
   proxy: { bytesIn: number; bytesOut: number; framesIn: number; framesOut: number }
