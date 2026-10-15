@@ -140,3 +140,64 @@ test('el temporizador del reintento no mantiene vivo el proceso', async () => {
     c.close()
   })
 })
+
+/**
+ * EL SOCKET QUE NO ABRE NI FALLA.
+ *
+ * La bóveda de Dotrino se quedó fuera del proxio hora y media el 2026-10-15: el latido la
+ * dio por muerta, el reintento creó un socket nuevo y ese socket no disparó nunca `open`,
+ * `error` ni `close` — el saludo del upgrade no llegó. Como el siguiente reintento solo se
+ * programa desde esos eventos, la cadena se paró ahí, sin una línea en el log.
+ */
+test('un reintento que se queda colgado al abrir se abandona y se vuelve a intentar', async () => {
+  await conCliente(async () => {
+    const eventos = []
+    const c = new WebSocketProxyClient({
+      url: 'wss://x', enableWebRTC: false, autoReconnect: true,
+      reconnectDelay: 20, maxReconnectAttempts: 50, enableHeartbeat: false, connectTimeout: 60
+    })
+    for (const e of ['connect', 'reconnecting']) c.on(e, () => eventos.push(e))
+    c.on('error', (e) => eventos.push('error:' + e.type))
+    await c.connect()
+
+    // El siguiente socket se crea y no hace NADA: ni abre ni falla.
+    let colgar = true
+    class SocketColgado {
+      static OPEN = 1
+      constructor () { this.readyState = 0; SocketFalso.creados.push(this) }
+      addEventListener () {}
+      close () {}
+    }
+    Object.defineProperty(globalThis, 'WebSocket', {
+      configurable: true,
+      value: new Proxy(SocketFalso, { construct: (T, args) => colgar ? new SocketColgado() : new T(...args) })
+    })
+    SocketFalso.ultimo.disparar('close', { code: 1006, reason: 'network gone' })
+    await esperar(40)
+    assert.equal(c._connected, false)
+
+    // Ese socket colgado se abandona por tiempo, y el siguiente intento ya abre.
+    colgar = false
+    await esperar(250)
+    assert.ok(eventos.includes('error:connect_timeout'), 'no abandonó el socket colgado: ' + eventos.join(' '))
+    assert.equal(c._connected, true, 'se quedó esperando al socket colgado: ' + eventos.join(' '))
+    c.close()
+  })
+})
+
+test('un `connect()` inicial colgado se rechaza con CONNECT_TIMEOUT y no reintenta', async () => {
+  await conCliente(async () => {
+    Object.defineProperty(globalThis, 'WebSocket', {
+      configurable: true,
+      value: class { static OPEN = 1; constructor () { this.readyState = 0 } addEventListener () {} close () {} }
+    })
+    const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, enableHeartbeat: false, connectTimeout: 30, reconnectDelay: 10 })
+    let reintentos = 0
+    c.on('reconnecting', () => reintentos++)
+    const err = await c.connect().then(() => null, (e) => e)
+    assert.equal(err?.code, 'CONNECT_TIMEOUT')
+    await esperar(80)
+    assert.equal(reintentos, 0)
+    c.close()
+  })
+})

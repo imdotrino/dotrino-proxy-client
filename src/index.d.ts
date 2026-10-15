@@ -3,6 +3,8 @@ export interface WebSocketProxyClientOptions {
   autoReconnect?: boolean
   maxReconnectAttempts?: number
   reconnectDelay?: number
+  /** Give up on a socket that has not opened after this many ms (counts as a failed attempt). Default 15000; 0 disables. */
+  connectTimeout?: number
   /** Enable WebRTC DataChannel transport with proxy fallback. Default true. */
   enableWebRTC?: boolean
   /** Override ICE servers (STUN-only by default). */
