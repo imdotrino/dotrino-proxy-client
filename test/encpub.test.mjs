@@ -250,12 +250,15 @@ test('sendSealedTo sella a la identidad que la app dice que hay detrás del toke
   directorio.set(ana.publickey, await buildEncPubStatement({ publickey: ana.publickey, encPub: ana.encPub, sign: ana.sign }))
 
   const c = cliente({ directorio })
-  await c.sendSealedTo('TOKEN-DE-ANA', { jugada: 'e4' }, { peerPubkey: ana.publickey })
+  // Un marcador largo: con «e4» a secas la prueba fallaba al azar, porque el texto cifrado
+  // también contiene «e4» de vez en cuando.
+  const jugada = { jugada: 'e4-jugada-en-claro' }
+  await c.sendSealedTo('TOKEN-DE-ANA', jugada, { peerPubkey: ana.publickey })
 
   const salidos = conContenido(c)
   assert.deepEqual(salidos[0].to, ['TOKEN-DE-ANA'], 'siguió yendo por token')
-  assert.ok(!JSON.stringify(salidos[0]).includes('e4'), 'salió en claro')
-  assert.deepEqual(await open(JSON.parse(salidos[0].message), ana.encPrivateKey), { jugada: 'e4' })
+  assert.ok(!JSON.stringify(salidos[0]).includes('jugada-en-claro'), 'salió en claro')
+  assert.deepEqual(await open(JSON.parse(salidos[0].message), ana.encPrivateKey), jugada)
 })
 
 test('sendSealedTo sin decir de quién es el token no manda nada', async () => {

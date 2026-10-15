@@ -194,7 +194,10 @@ test('un `connect()` inicial colgado se rechaza con CONNECT_TIMEOUT y no reinten
     const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, enableHeartbeat: false, connectTimeout: 30, reconnectDelay: 10 })
     let reintentos = 0
     c.on('reconnecting', () => reintentos++)
-    const err = await c.connect().then(() => null, (e) => e)
+    // El tope va con `unref` (es mantenimiento de fondo) y el socket falso no tiene handle
+    // de red: sin algo que mantenga vivo el proceso, el runner se va antes de que salte.
+    const vivo = setInterval(() => {}, 1000)
+    const err = await c.connect().then(() => null, (e) => e).finally(() => clearInterval(vivo))
     assert.equal(err?.code, 'CONNECT_TIMEOUT')
     await esperar(80)
     assert.equal(reintentos, 0)
