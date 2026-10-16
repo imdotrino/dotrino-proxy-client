@@ -305,6 +305,12 @@ export class WebSocketProxyClient {
   helloTo (to: string | string[]): void
   /** Whose this token is, if anybody has said so. Null means «not yet». */
   pubkeyOfToken (token: string): string | null
+  /**
+   * Whether the other side said in its greeting that it understands `feature` (0.36.0;
+   * today only `binary`). Null means it has not greeted yet. Takes a token or a pubkey.
+   * Sending bytes to one that said no throws `peer-no-binary`.
+   */
+  speaks (who: string, feature?: string): boolean | null
   /** Forget a token (it left), or all of them. */
   forgetToken (token?: string | null): void
   /** My own identity on the wire, as `identify` bound it. */

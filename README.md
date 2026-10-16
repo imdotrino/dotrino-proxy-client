@@ -140,8 +140,14 @@ Cómo:
 Lo que **no** lleva bytes sale en texto, igual que antes: las piezas que no saben de esto (las
 apps nativas, versiones anteriores) siguen hablando con todos para lo de siempre. Un mensaje
 con bytes necesita un proxio que anuncie `binary` en sus `caps` (`websocket-proxy` ≥ 1.6.0);
-si no, se lanza `no-binary-support` antes de mandar nada. **Quien lo recibe tiene que ser
-≥ 0.35.0**: una versión anterior no entiende la trama binaria.
+si no, se lanza `no-binary-support` antes de mandar nada.
+
+**Quien recibe dice si entiende bytes** (0.36.0+): el saludo (`helloTo`) lleva
+`speaks: ['binary']`, y `client.speaks(tokenOrPubkey)` devuelve `true`, `false` o `null` (no ha
+saludado). A quien saludó sin decirlo (una versión anterior, una app nativa) no se le mandan
+bytes: se lanza `peer-no-binary` antes de mandar nada, para que la app lo diga. Si todavía no
+ha saludado no se sabe, y se manda. La idea del dueño es que **todo pase a binario con el
+tiempo**: esta lista es por donde se sabrá quién ya puede.
 
 ## TURN temporal (0.7.0+)
 

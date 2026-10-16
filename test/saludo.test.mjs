@@ -33,12 +33,12 @@ test('sin saludo no se sella por token: para y lo dice con su code', async () =>
   assert.equal(c.enviados.length, 0, 'no salió nada al cable')
 })
 
-test('el saludo dice quién soy y no lleva nada más', () => {
+test('el saludo dice quién soy y qué entiendo, y nada más', () => {
   const c = cliente({ requireSealed: true })
   c.myPublickey = 'PK-MIA'
   c.helloTo('OTRO')
   const [saludo] = dirigidos(c, 'OTRO')
-  assert.deepEqual(saludo, { t: '__cc_hello__', publickey: 'PK-MIA' })
+  assert.deepEqual(saludo, { t: '__cc_hello__', publickey: 'PK-MIA', speaks: ['binary'] })
 })
 
 test('saludar sin identificarse no sale: un saludo sin identidad no dice nada', () => {

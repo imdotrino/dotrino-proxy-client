@@ -206,3 +206,39 @@ test('the direct channel carries bytes, and an ArrayBuffer is delivered as bytes
   assert.deepEqual(unpack(delivered[0]).d, fileBytes(100))
   assert.ok(DIRECT_PART_BYTES + 16 * 1024 <= 64 * 1024)
 })
+
+test('the greeting says it understands bytes; to one that did not, bytes are refused before sending', async () => {
+  const { a, keyB } = await pairOfClients()
+  a._proxySendOne = () => {}
+  assert.equal(a.speaks('B'), null, 'without a greeting nobody knows')
+  // An older client greets without `speaks`.
+  a._onHello('B', { t: '__cc_hello__', publickey: 'PK-B' })
+  assert.equal(a.speaks('B'), false)
+  assert.equal(a.speaks('PK-B'), false)
+  await assert.rejects(
+    a.sendSealedTo('B', { file: { data: fileBytes(10) } }, { peerPubkey: 'PK-B', peerEncPub: keyB.encPub }),
+    (e) => e.code === 'peer-no-binary')
+  await assert.rejects(
+    a.sendSealed(['PK-B'], { file: { data: fileBytes(10) } }, { peerEncPub: keyB.encPub }),
+    (e) => e.code === 'peer-no-binary')
+  assert.equal(a.sent.length, 0)
+  // Text still goes.
+  await a.sendSealedTo('B', { text: 'hola' }, { peerPubkey: 'PK-B', peerEncPub: keyB.encPub })
+  assert.equal(a.sent.length, 1)
+
+  // One that says it does: bytes go.
+  a._onHello('C', { t: '__cc_hello__', publickey: 'PK-C', speaks: ['binary'] })
+  assert.equal(a.speaks('C'), true)
+  await a.sendSealedTo('C', { file: { data: fileBytes(10) } }, { peerPubkey: 'PK-C', peerEncPub: keyB.encPub })
+  assert.ok(a.sent.at(-1).message instanceof Uint8Array)
+})
+
+test('my own greeting announces binary', () => {
+  const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false })
+  const out = []
+  c._proxySendOne = (to, payload) => out.push(payload)
+  c.myPublickey = 'PK-A'
+  c.token = 'A'
+  c.helloTo('B')
+  assert.deepEqual(out[0].speaks, ['binary'])
+})
