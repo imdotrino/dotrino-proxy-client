@@ -129,3 +129,23 @@ test('el canal directo espera a que su búfer baje antes de mandar la siguiente 
   assert.equal(await m.sendDirect('B', 'otra'), false)
   assert.ok(DIRECT_PART_CHARS < 64 * 1024)
 })
+
+test('por el proxio en vivo hay tope (25 MB de archivo): más que eso pide canal directo', async () => {
+  const { RELAY_MAX_CHARS } = await import('../src/parts.js')
+  const { a, llaveB } = await par()
+  await assert.rejects(
+    a.sendSealedTo('B', grande(RELAY_MAX_CHARS + 1), { peerPubkey: 'PK-B', peerEncPub: llaveB.encPub }),
+    (e) => e.code === 'too-big-for-relay')
+  assert.equal(a.enviados.length, 0, 'no salió ninguna parte')
+})
+
+test('routeTo dice por dónde va: proxio, canal directo o sin conexión', async () => {
+  const { a } = await par()
+  a._connected = true
+  assert.equal(await a.routeTo(null), 'offline')
+  assert.equal(await a.routeTo('B'), 'proxy')
+  a._rtc = { isOpen: (t) => t === 'B', peers: new Map([['B', {}]]), probeRoute: async () => 'turn' }
+  assert.equal(await a.routeTo('B'), 'turn')
+  a._connected = false
+  assert.equal(await a.routeTo('B'), 'offline')
+})

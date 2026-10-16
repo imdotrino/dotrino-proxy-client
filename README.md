@@ -76,7 +76,7 @@ client.sendToOrQueue(tokenDelOtro, sobreYaCifrado, { peerPubkey })
 Sube al canal directo si lo hay; si el token murió, el mismo mensaje sale por `peerPubkey`
 y salta `token_gone`. Con `requireSealed` se niega igual que `send`.
 
-## Mensajes grandes, en partes (0.33.1+)
+## Mensajes grandes, en partes (0.33.1+; tope en vivo y `routeTo`, 0.34.0+)
 
 `sendSealed` y `sendSealedTo` aceptan un mensaje de cualquier tamaño: lo que no cabe en un
 mensaje del camino que toca **sale en partes selladas** y la otra punta lo rearma antes de
@@ -84,14 +84,24 @@ emitir `message` (con `meta.parts`). La app no trocea nada ni sabe por dónde fu
 
 | Camino | Parte | Tope del mensaje entero |
 |---|---|---|
-| por token, canal directo | 40 KB de JSON (libwebrtc rechaza > 64 KiB), esperando a que el búfer del canal baje | **sin tope** |
-| por token, proxio en vivo | 512 KB de JSON (cabe en la trama de 1 MB ya sellada) | **sin tope** |
+| por token, canal directo (WebRTC directo o por TURN) | 40 KB de JSON (libwebrtc rechaza > 64 KiB), esperando a que el búfer del canal baje | **sin tope** |
+| por token, proxio en vivo | 512 KB de JSON (cabe en la trama de 1 MB ya sellada) | **25 MB de archivo** (`RELAY_MAX_CHARS`, ~34 MB de JSON) |
 | por pubkey (se queda **esperando** en el proxio) | 512 KB | **8 MB de archivo** (`QUEUE_MAX_CHARS`, ~11 MB de JSON) |
 
-Regla del dueño (2026-10-15): con los dos conectados no hay tope; **lo que pasa de 8 MB no se
-deja esperando en el proxio**. Por pubkey lanza `too-big-for-queue` sin mandar nada; por
-token, si el otro se desconecta a mitad de uno así, no se manda el resto a la cola y se emite
-`error` con ese `code`.
+Reglas del dueño (2026-10-15):
+
+- Por canal directo no hay tope.
+- Por el proxio en vivo, como mucho 25 MB: cada parte cruza el VPS dos veces. Más que eso
+  lanza `too-big-for-relay` y pide el canal directo para el siguiente intento. Si el canal
+  directo se cae a mitad de uno así, para con `direct-lost`.
+- **Lo que pasa de 8 MB no se deja esperando en el proxio.** Por pubkey lanza
+  `too-big-for-queue` sin mandar nada; por token, si el otro se desconecta a mitad de uno
+  así, no se manda el resto a la cola y se emite `error` con ese `code`.
+
+`routeTo(token)` dice el camino de ahora (`direct`, `turn`, `webrtc`, `proxy` u `offline`;
+`socket` queda reservado para la otra punta en la misma máquina) para que la app enseñe el tope
+antes de que el usuario intente algo que no cabe. Los eventos `webrtc_open` y `webrtc_close`
+avisan cuando cambia.
 
 - Cada parte va sellada por su cuenta: el proxio no ve que es una parte ni de qué mensaje.
 - Se rearman agrupando por la llave que selló, en cualquier orden.

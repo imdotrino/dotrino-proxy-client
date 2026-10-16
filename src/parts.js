@@ -8,8 +8,10 @@
  * la app manda y recibe un objeto entero, como siempre.
  *
  * La regla del dueño (2026-10-15), que es lo que decide los topes:
- *   - con los dos conectados (por token) NO HAY TOPE: va en partes por el canal directo o,
- *     si no sale, por el proxio en vivo;
+ *   - por el canal directo (WebRTC, también por TURN) NO HAY TOPE;
+ *   - por el proxio EN VIVO (los dos conectados, sin canal directo), como mucho 25 MB de
+ *     archivo: cada parte cruza el VPS dos veces, y uno de 25 MB ya son ~90 MB de tráfico.
+ *     Más que eso lanza `too-big-for-relay`, y sale cuando haya canal directo;
  *   - lo que se queda ESPERANDO en el proxio (por pubkey, el otro desconectado) es como
  *     mucho 8 MB de archivo: una foto de teléfono pesa 2-5 MB, y con 1 MB (lo primero que se
  *     pensó) casi ninguna habría podido esperar. Lo que pasa de ahí no se deja en el proxio:
@@ -31,6 +33,8 @@ export const PROXY_PART_CHARS = 512 * 1024
  * archivo en base64 ocupan ~10,7 MB, y se deja margen para lo que va alrededor.
  */
 export const QUEUE_MAX_CHARS = 11 * 1024 * 1024
+/** Lo más que pasa por el proxio EN VIVO: 25 MB de archivo son ~33,4 MB en base64. */
+export const RELAY_MAX_CHARS = 34 * 1024 * 1024
 
 /** Rearmado: lo que se acepta guardar a medias, y cuánto se espera a la parte siguiente. */
 const RECV_MAX_CHARS = 512 * 1024 * 1024

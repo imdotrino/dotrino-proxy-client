@@ -3,7 +3,7 @@ import { seal, open, isSealed } from './sealing.js'
 import { buildEncPubStatement, readEncPubStatement, isEncPub } from './encpub.js'
 import { WebRTCManager, RTC_TAG, DEFAULT_ICE_SERVERS, loadNodePeerConnection, resolvePeerConnection, pinTurnToIPv4 } from './webrtc.js'
 import { TrafficStats, utf8Length, registerTransport, unregisterTransport } from './stats.js'
-import { splitParts, isPart, Reassembler, DIRECT_PART_CHARS, PROXY_PART_CHARS, QUEUE_MAX_CHARS } from './parts.js'
+import { splitParts, isPart, Reassembler, DIRECT_PART_CHARS, PROXY_PART_CHARS, QUEUE_MAX_CHARS, RELAY_MAX_CHARS } from './parts.js'
 
 /**
  * Error con un `code` estable.
@@ -575,14 +575,43 @@ export class WebSocketProxyClient {
       this.send(tokens, sobre)
       return
     }
+    // Por el proxio en vivo hay tope (parts.js): lo que pasa de él solo sale por canal
+    // directo. Se pide el canal para que el siguiente intento lo encuentre abierto.
+    if (!direct && json.length > RELAY_MAX_CHARS) {
+      this._upgradeDirect(tokens)
+      throw errorCon(`sendSealedTo: ${json.length} chars is more than goes through the proxy live (${RELAY_MAX_CHARS}); it needs a direct channel`, 'too-big-for-relay')
+    }
     // Si el token muere a mitad, lo que quede se iría a la cola por pubkey; solo se permite
     // si el mensaje entero cabe ahí. Si no, se dice (`too-big-for-queue`), no se deja.
     const queueFallback = json.length <= QUEUE_MAX_CHARS
+    // Y si el canal directo se cae a mitad, el resto va por el proxio en vivo solo si el
+    // mensaje entero cabe por ahí; si no, se para y se dice (`direct-lost`).
+    const relayFallback = json.length <= RELAY_MAX_CHARS
     for (const piece of splitParts(json, size)) {
       const sobre = await this._seal(piece, peerEncPub, peerPubkey)
-      if (tokens.length === 1 && peerPubkey) await this._sendPiece(tokens[0], sobre, peerPubkey, queueFallback)
+      if (tokens.length === 1 && peerPubkey) await this._sendPiece(tokens[0], sobre, peerPubkey, queueFallback, relayFallback)
       else this.send(tokens, sobre)
     }
+  }
+
+  /**
+   * POR DÓNDE LE LLEGA AHORA un mensaje a este token: `socket` (la otra punta en esta
+   * máquina), `direct` (WebRTC sin nadie en medio), `turn` (WebRTC por el relevo, que no puede
+   * leer lo que pasa), `proxy` (en vivo por el proxio) u `offline` (no hay conexión: por
+   * pubkey quedaría esperando en el proxio). Cada camino tiene su tope (parts.js), y para eso
+   * existe esto: que la app lo enseñe antes de que el usuario intente algo que no cabe.
+   * `webrtc` es un canal directo abierto del que todavía no se sabe si va por TURN.
+   * @param {string|null} token
+   * @returns {Promise<'socket'|'direct'|'turn'|'webrtc'|'proxy'|'offline'>}
+   */
+  async routeTo (token) {
+    if (!this._connected) return 'offline'
+    if (!token) return 'offline'
+    if (this._rtc?.isOpen(token)) {
+      const peer = this._rtc.peers.get(token)
+      try { return (await this._rtc.probeRoute(peer)) || 'webrtc' } catch (_) { return 'webrtc' }
+    }
+    return 'proxy'
   }
 
   /**
@@ -590,8 +619,11 @@ export class WebSocketProxyClient {
    * archivo grande lo desborda y el navegador cierra el canal), o por el proxio en vivo con
    * una pausa corta entre partes, para no chocar con su límite de mensajes por segundo.
    */
-  async _sendPiece (token, sobre, peerPubkey, queueFallback) {
+  async _sendPiece (token, sobre, peerPubkey, queueFallback, relayFallback = true) {
     if (this._rtc && await this._rtc.sendDirect(token, JSON.stringify(sobre))) return
+    if (!relayFallback) {
+      throw errorCon('the direct channel closed in the middle of a message too big for the proxy', 'direct-lost')
+    }
     this._sendToTokenOrQueue(token, sobre, peerPubkey, { queueFallback, skipDirect: true })
     await new Promise((r) => setTimeout(r, 20))
   }

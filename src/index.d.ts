@@ -269,6 +269,8 @@ export class WebSocketProxyClient {
    * can upgrade to WebRTC). A token does not say whose it is, so the app states it with
    * `peerPubkey` — from the channel, the room roster or the invite.
    */
+  /** Por dónde le llega ahora un mensaje a este token (0.34.0). */
+  routeTo (token: string | null): Promise<'socket' | 'direct' | 'turn' | 'webrtc' | 'proxy' | 'offline'>
   sendSealedTo (
     toTokens: string | string[],
     payload: any,
@@ -398,3 +400,5 @@ export const DIRECT_PART_CHARS: number
 export const PROXY_PART_CHARS: number
 /** Lo más que puede esperar en el proxio (por pubkey), en caracteres de JSON (~8 MB de archivo). */
 export const QUEUE_MAX_CHARS: number
+/** Lo más que pasa por el proxio en vivo, en caracteres de JSON (~25 MB de archivo). */
+export const RELAY_MAX_CHARS: number
