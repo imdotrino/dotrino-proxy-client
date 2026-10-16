@@ -591,7 +591,9 @@ export class WebSocketProxyClient {
     const size = m.bin ? (direct ? DIRECT_PART_BYTES : PROXY_PART_BYTES) : (direct ? DIRECT_PART_CHARS : PROXY_PART_CHARS)
     const relayMax = m.bin ? RELAY_MAX_BYTES : RELAY_MAX_CHARS
     const queueMax = m.bin ? QUEUE_MAX_BYTES : QUEUE_MAX_CHARS
-    if (m.bin) this._needPeerBinary([...tokens, peerPubkey])
+    // Por token decide lo que dijo ESA conexión: lo recordado de la identidad puede ser de una
+    // versión que ya se actualizó.
+    if (m.bin) this._needPeerBinary(tokens)
     if (m.bin && !direct) this._needBinaryProxy()
     const sealPiece = await this._sealerFor(m.bin, peerEncPub, peerPubkey)
     if (m.len <= size) {

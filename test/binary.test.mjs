@@ -231,6 +231,13 @@ test('the greeting says it understands bytes; to one that did not, bytes are ref
   assert.equal(a.speaks('C'), true)
   await a.sendSealedTo('C', { file: { data: fileBytes(10) } }, { peerPubkey: 'PK-C', peerEncPub: keyB.encPub })
   assert.ok(a.sent.at(-1).message instanceof Uint8Array)
+
+  // B updates: its NEW connection says it does, and that is what counts by token, even though
+  // its identity was remembered as not understanding bytes.
+  a._onHello('B2', { t: '__cc_hello__', publickey: 'PK-B', speaks: ['binary'] })
+  await a.sendSealedTo('B2', { file: { data: fileBytes(10) } }, { peerPubkey: 'PK-B', peerEncPub: keyB.encPub })
+  assert.ok(a.sent.at(-1).message instanceof Uint8Array)
+  assert.equal(a.speaks('PK-B'), true)
 })
 
 test('my own greeting announces binary', () => {
