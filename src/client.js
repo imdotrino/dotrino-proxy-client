@@ -26,9 +26,9 @@ import { pack, unpack, hasBinary, encodeFrame, decodeFrame } from './binpack.js'
 const HELLO_TAG = '__cc_hello__'
 /**
  * Lo que este cliente entiende, y lo dice en el saludo (0.36.0). Hoy una cosa: `binary`, las
- * tramas con bytes (binpack.js). Quien saluda sin decirlo es anterior y no las entiende, así
- * que no se le mandan: se lanza `peer-no-binary` y la app lo enseña. La idea del dueño es que
- * todo pase a binario con el tiempo, y esta lista es por donde se sabrá quién ya puede.
+ * tramas empaquetadas (binpack.js). Desde 0.37.0 todo lo dirigido va así, así que a quien
+ * saluda sin decirlo (es anterior) no se le manda nada: se lanza `peer-no-binary` y la app lo
+ * enseña.
  */
 const SPEAKS = ['binary']
 
@@ -836,21 +836,24 @@ export class WebSocketProxyClient {
     }
   }
 
-  /** Lo que mide un mensaje para sus topes: su paquete si lleva bytes, su JSON si no. */
+  /**
+   * TODO VA EN BINARIO (0.37.0, dueño: «todo a binario»). Un mensaje dirigido se empaqueta
+   * siempre (binpack.js) y lo sellado va con el sobre binario: la llave del mensaje sellada y
+   * el paquete cifrado como bytes. Lleve bytes o no: un solo formato en el cable.
+   */
   _measure (payload) {
-    if (hasBinary(payload)) {
-      const whole = pack(payload)
-      return { bin: true, whole, len: whole.byteLength }
-    }
-    const whole = JSON.stringify(payload)
-    return { bin: false, whole, len: whole.length }
+    const whole = pack(payload)
+    return { bin: true, whole, len: whole.byteLength }
   }
 
-  /** Cómo va por el cable: los bytes tal cual, el texto tal cual, y un objeto en JSON (o empaquetado, si lleva bytes). */
+  /**
+   * Cómo va por el cable: los bytes tal cual y un objeto empaquetado. Una cadena sale tal
+   * cual, en texto: es lo que mandan el saludo y la señalización de WebRTC, que son del
+   * transporte y los lee cualquier versión.
+   */
   _wire (payload) {
     if (typeof payload === 'string' || payload instanceof Uint8Array) return payload
-    if (hasBinary(payload)) return pack(payload)
-    return JSON.stringify(payload)
+    return pack(payload)
   }
 
   /** Un mensaje con bytes por el proxio necesita uno que admita tramas binarias (websocket-proxy ≥ 1.6.0). */

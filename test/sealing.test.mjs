@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 
 import { WebSocketProxyClient } from '../src/index.js'
 import { seal, makeEncKeypair, isSealed, setSealingPrimitives } from '../src/sealing.js'
+import { esSobre } from './_cable.mjs'
 
 // `@dotrino/identity` es peer dependency: en este repo no está instalada, así que se
 // inyectan las primitivas desde la copia del ecosistema. Es exactamente el hueco que
@@ -15,6 +16,7 @@ setSealingPrimitives(await import('@dotrino/identity/content'))
 
 function clienteFalso (opts = {}) {
   const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, ...opts })
+  c.caps = ['binary']
   c._sendRaw = (msg) => { c._enviado = msg }
   return c
 }
@@ -40,7 +42,7 @@ test('sendSealed manda el sobre; el contenido no va por el cable', async () => {
   await c.sendSealed(['PEER'], { secreto: 'hunter2' }, { peerEncPub: peer.encPub })
 
   assert.ok(!JSON.stringify(c._enviado).includes('hunter2'), 'salió en claro')
-  assert.ok(isSealed(JSON.parse(c._enviado.message)))
+  assert.ok(esSobre(c._enviado.message))
 })
 
 // Antes esto afirmaba que sin `peerEncPub` se lanzaba `unsealed` y punto. Desde
@@ -49,7 +51,7 @@ test('sendSealed manda el sobre; el contenido no va por el cable', async () => {
 // distingue por el `code`. Lo que no cambió, y es lo que aquí importa: no sale nada.
 test('sendSealed sin llave y sin quien la sepa no manda nada', async () => {
   const c = clienteFalso()
-  c.caps = ['channels']   // un proxio que no sirve el directorio: contesta al instante
+  c.caps = ['channels', 'binary']   // un proxio que no sirve el directorio: contesta al instante
   await assert.rejects(
     () => c.sendSealed(['PEER'], { x: 1 }, {}),
     e => e.code === 'no-encpub-support')
@@ -148,7 +150,7 @@ test('sellado delegado: la app no toca ninguna llave', async () => {
   assert.ok(!JSON.stringify(c._enviado).includes('hunter2'), 'salió en claro')
 
   // Lo que llega en ese formato se abre; lo que llega en claro sigue rechazándose.
-  await c._deliver('PEER', JSON.parse(c._enviado.message), {})
+  await c._deliver('PEER', c._enviado.message, {})
   assert.deepEqual(recibidos[0].p, { secreto: 'hunter2' })
   assert.equal(recibidos[0].sealed, true)
 

@@ -10,6 +10,8 @@
  * Importar este módulo ANTES que nada de `src/`: signature.js cachea el par de
  * llaves en cuanto se usa.
  */
+import { decodeFrame } from '../src/binpack.js'
+
 const memoria = new Map()
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
@@ -39,7 +41,12 @@ export class FakeWebSocket {
     this._oyentes.get(ev).add(fn)
   }
   removeEventListener (ev, fn) { this._oyentes.get(ev)?.delete(fn) }
-  send (texto) { this.enviados.push(JSON.parse(texto)) }
+  send (texto) {
+    if (typeof texto === 'string') { this.enviados.push(JSON.parse(texto)); return }
+    // Trama binaria (0.37.0: todo lo dirigido): la cabecera, y el `message` en crudo.
+    const { header, body } = decodeFrame(texto)
+    this.enviados.push({ ...header, message: body })
+  }
   close () { this.readyState = FakeWebSocket.CLOSED; this._disparar('close', { code: 1000 }) }
   _disparar (ev, detalle) { for (const fn of this._oyentes.get(ev) || []) fn(detalle) }
   /** El "servidor" contesta. */

@@ -13,6 +13,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { FakeWebSocket } from './_entorno.mjs'
+import { leer } from './_cable.mjs'
 
 const FUENTE = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
 
@@ -79,7 +80,7 @@ async function conectado () {
   })
   const p = c.connect()
   await new Promise((r) => setTimeout(r, 0))
-  FakeWebSocket.ultimo.responde({ type: 'connected', token: 'TOK1' })
+  FakeWebSocket.ultimo.responde({ type: 'connected', token: 'TOK1', caps: ['binary'] })
   await p
   return { c, ws: FakeWebSocket.ultimo }
 }
@@ -196,10 +197,10 @@ test('sendByPubkey solo marca quiet cuando se pide', async () => {
   c.close()
 })
 
-test('sendByPubkey serializa el payload a texto, y no re-serializa una cadena', async () => {
+test('sendByPubkey empaqueta un objeto (todo va en binario) y no toca una cadena', async () => {
   const { c, ws } = await conectado()
   c.sendByPubkey('PUB1', { a: 1 })
-  assert.equal(ws.ultimoEnviado.message, '{"a":1}')
+  assert.deepEqual(leer(ws.ultimoEnviado.message), { a: 1 })
   c.sendByPubkey('PUB1', 'ya-es-texto')
   assert.equal(ws.ultimoEnviado.message, 'ya-es-texto')
   c.close()

@@ -13,6 +13,7 @@ function cliente () {
   const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, requireSealed: true })
   c.enviados = []
   c._sendRaw = (frame) => { c.enviados.push(frame) }
+  c.caps = ['binary']
   c.ws = { readyState: 1 }
   c.token = 'MIO'
   c.myPublickey = 'PK-MIA'
@@ -51,6 +52,7 @@ test('sendToOrQueue: por token, y a la cola por pubkey si el token murió', () =
   const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false })
   c.enviados = []
   c._sendRaw = (frame) => { c.enviados.push(frame) }
+  c.caps = ['binary']
   c.ws = { readyState: 1 }
   c.token = 'MIO'
   const gone = []
@@ -61,7 +63,7 @@ test('sendToOrQueue: por token, y a la cola por pubkey si el token murió', () =
   assert.deepEqual(porToken.to, ['VIEJO'])
   c._handleFrame(JSON.stringify({ type: 'message_sent', id: porToken.id, failed: ['VIEJO'] }))
   assert.deepEqual(c.enviados[1].to_publickey, ['PK-OTRO'])
-  assert.equal(c.enviados[1].message, porToken.message)
+  assert.deepEqual(c.enviados[1].message, porToken.message)
   assert.deepEqual(gone, [['VIEJO', 'PK-OTRO']])
 })
 

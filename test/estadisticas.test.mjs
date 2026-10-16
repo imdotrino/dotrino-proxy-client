@@ -11,6 +11,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocketProxyClient, listTransports, routeOf, logStats } from '../src/index.js'
 import { utf8Length } from '../src/stats.js'
+import { pack } from '../src/binpack.js'
 
 const tick = () => new Promise((r) => setImmediate(r))
 
@@ -18,7 +19,7 @@ async function conectado () {
   const c = new WebSocketProxyClient({ url: 'ws://x', enableWebRTC: false, autoReconnect: false, enableHeartbeat: false })
   const p = c.connect()
   await tick()
-  FakeWebSocket.ultimo.responde({ type: 'connected', token: 'yo', node: 'n1' })
+  FakeWebSocket.ultimo.responde({ type: 'connected', token: 'yo', node: 'n1', caps: ['binary'] })
   await p
   return { c, ws: FakeWebSocket.ultimo }
 }
@@ -41,7 +42,7 @@ test('lo que sale y entra por el proxio se cuenta por conexión, como proxio', a
   const p = s.peers.find((x) => x.token === 'peer-1')
   assert.ok(p)
   assert.equal(p.route, 'proxy')
-  assert.equal(p.bytesOut.proxy, utf8Length(JSON.stringify({ hola: 'ñ' })))
+  assert.equal(p.bytesOut.proxy, pack({ hola: 'ñ' }).byteLength)
   assert.equal(p.bytesIn.proxy, utf8Length(JSON.stringify({ r: 1 })))
   assert.equal(p.msgsOut, 1)
   assert.equal(p.msgsIn, 1)
@@ -57,7 +58,7 @@ test('por pubkey, la conexión se apunta por la llave', async () => {
   const p = s.peers.find((x) => x.pubkey === 'PK1')
   assert.ok(p)
   assert.equal(p.token, null)
-  assert.equal(p.bytesOut.proxy, utf8Length(JSON.stringify({ x: 1 })))
+  assert.equal(p.bytesOut.proxy, pack({ x: 1 }).byteLength)
   c.close()
 })
 

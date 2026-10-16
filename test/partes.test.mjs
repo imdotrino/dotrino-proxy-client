@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 
 import { WebSocketProxyClient } from '../src/index.js'
 import { setSealingPrimitives, makeEncKeypair } from '../src/sealing.js'
-import { PART_TAG, PROXY_PART_CHARS, QUEUE_MAX_CHARS, DIRECT_PART_CHARS } from '../src/parts.js'
+import { PART_TAG, PROXY_PART_CHARS, PROXY_PART_BYTES, QUEUE_MAX_CHARS, DIRECT_PART_CHARS } from '../src/parts.js'
+import { encodeFrame } from '../src/binpack.js'
 import { WebRTCManager } from '../src/webrtc.js'
 
 setSealingPrimitives(await import('@dotrino/identity/content'))
@@ -17,6 +18,7 @@ async function par () {
   const a = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, requireSealed: true })
   a.enviados = []
   a._sendRaw = (frame) => { a.enviados.push(frame) }
+  a.caps = ['binary']
   a.ws = { readyState: 1 }
   a.token = 'A'
   a.myPublickey = 'PK-A'
@@ -32,7 +34,7 @@ async function par () {
   // tiempo fijo, que en CI se queda corto.
   const entregar = async (frames) => {
     const antes = recibidos.length + errores.length
-    for (const f of frames) b._handleFrame(JSON.stringify({ type: 'message', from: 'A', from_publickey: 'PK-A', message: f.message }))
+    for (const f of frames) b._handleFrame(encodeFrame({ type: 'message', from: 'A', from_publickey: 'PK-A' }, f.message).buffer)
     const fin = Date.now() + 15000
     while (recibidos.length + errores.length === antes && Date.now() < fin) await new Promise((r) => setTimeout(r, 20))
     await new Promise((r) => setTimeout(r, 50)) // por si llegara algo más (no debe)
@@ -59,8 +61,8 @@ test('por token, uno grande sale en partes selladas y llega entero, una sola vez
   assert.ok(a.enviados.length > 1, 'salió en varias tramas')
   for (const f of a.enviados) {
     assert.deepEqual(f.to, ['B'])
-    assert.ok(!f.message.includes(PART_TAG), 'el proxio no ve que es una parte: va sellada')
-    assert.ok(f.message.length < 1024 * 1024, 'cada parte cabe en la trama del proxio')
+    assert.equal(Buffer.from(f.message).indexOf(PART_TAG), -1, 'el proxio no ve que es una parte: va sellada')
+    assert.ok(f.message.byteLength < 1024 * 1024, 'cada parte cabe en la trama del proxio')
   }
   // Desordenadas: la cola y el canal directo pueden entregar en otro orden.
   await entregar([...a.enviados].reverse())
@@ -72,7 +74,7 @@ test('por token, uno grande sale en partes selladas y llega entero, una sola vez
 
 test('por pubkey (puede quedarse esperando) se parte hasta el tope y no pasa de él', async () => {
   const { a, llaveB, recibidos, entregar } = await par()
-  const msg = grande(PROXY_PART_CHARS * 2)
+  const msg = grande(PROXY_PART_BYTES * 2)
   await a.sendSealed(['PK-B'], msg, { peerEncPub: llaveB.encPub })
   assert.equal(a.enviados.length, 3)
   for (const f of a.enviados) assert.deepEqual(f.to_publickey, ['PK-B'])

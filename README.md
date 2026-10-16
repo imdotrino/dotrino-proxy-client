@@ -137,17 +137,21 @@ Cómo:
   `QUEUE_MAX_BYTES` (8 MB de archivo), `RELAY_MAX_BYTES` (25 MB), partes de
   `DIRECT_PART_BYTES` (48 KB) y `PROXY_PART_BYTES` (768 KB).
 
-Lo que **no** lleva bytes sale en texto, igual que antes: las piezas que no saben de esto (las
-apps nativas, versiones anteriores) siguen hablando con todos para lo de siempre. Un mensaje
-con bytes necesita un proxio que anuncie `binary` en sus `caps` (`websocket-proxy` ≥ 1.6.0);
-si no, se lanza `no-binary-support` antes de mandar nada.
+**Todo va en binario** (0.37.0, dueño: «todo a binario»). No solo lo que lleva bytes: todo
+mensaje dirigido (`send`, `sendByPubkey`, `sendSealed`, `sendSealedTo`, `sendToOrQueue`) se
+empaqueta, y lo sellado va siempre con el sobre binario (`{ bv: 1, k, iv, ct }`). Un solo
+formato en el cable. Siguen en texto solo las tramas del transporte: el saludo, la señalización
+de WebRTC y las órdenes al proxio (`identify`, `publish`…). Recibir en texto se sigue
+entendiendo.
 
-**Quien recibe dice si entiende bytes** (0.36.0+): el saludo (`helloTo`) lleva
+Hace falta un proxio que anuncie `binary` en sus `caps` (`websocket-proxy` ≥ 1.6.0); si no, se
+lanza `no-binary-support` antes de mandar nada.
+
+**Quien recibe dice si entiende binario** (0.36.0+): el saludo (`helloTo`) lleva
 `speaks: ['binary']`, y `client.speaks(tokenOrPubkey)` devuelve `true`, `false` o `null` (no ha
-saludado). A quien saludó sin decirlo (una versión anterior, una app nativa) no se le mandan
-bytes: se lanza `peer-no-binary` antes de mandar nada, para que la app lo diga. Si todavía no
-ha saludado no se sabe, y se manda. La idea del dueño es que **todo pase a binario con el
-tiempo**: esta lista es por donde se sabrá quién ya puede.
+saludado). A quien saludó sin decirlo (una versión anterior a 0.36, `dotrino-native` anterior a
+0.37) no se le manda nada: se lanza `peer-no-binary` antes de mandar, para que la app lo diga.
+Si todavía no ha saludado no se sabe, y se manda.
 
 ## TURN temporal (0.7.0+)
 

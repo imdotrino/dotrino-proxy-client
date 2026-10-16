@@ -1,4 +1,5 @@
 import './_entorno.mjs'
+import { leer, esSobre } from './_cable.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -13,6 +14,7 @@ function cliente (opts = {}) {
   c.enviados = []
   c._sendRaw = (frame) => { c.enviados.push(frame) }
   c.ws = { readyState: 1 }
+  c.caps = ['binary']
   c.token = opts.token || 'MIO'
   return c
 }
@@ -21,7 +23,7 @@ function cliente (opts = {}) {
 function dirigidos (c, to) {
   return c.enviados
     .filter((f) => Array.isArray(f.to) && f.to.includes(to))
-    .map((f) => JSON.parse(f.message))
+    .map((f) => leer(f.message))
 }
 
 test('sin saludo no se sella por token: para y lo dice con su code', async () => {
@@ -89,13 +91,13 @@ test('con el saludo hecho, sellar por token ya no necesita que la app diga nada'
   const suya = await makeEncKeypair()
   const c = cliente({ requireSealed: true })
   c.myPublickey = 'PK-MIA'
-  c._handleFrame(JSON.stringify({ type: 'message', from: 'OTRO', message: JSON.stringify({ t: '__cc_hello__', publickey: 'PK-OTRO' }) }))
+  c._handleFrame(JSON.stringify({ type: 'message', from: 'OTRO', message: JSON.stringify({ t: '__cc_hello__', publickey: 'PK-OTRO', speaks: ['binary'] }) }))
   c._encPubs.set('PK-OTRO', suya.encPub)   // como si ya se hubiera preguntado al proxio
 
   await c.sendSealedTo('OTRO', { texto: 'esto es del usuario' })
-  const salidos = dirigidos(c, 'OTRO')
-  const sobre = salidos.at(-1)
-  assert.ok(sobre.sealed, 'salió sellado')
+  const cable = c.enviados.filter((f) => Array.isArray(f.to) && f.to.includes('OTRO')).at(-1)
+  assert.ok(esSobre(cable.message), 'salió sellado')
+  const sobre = leer(cable.message)
   assert.ok(!JSON.stringify(sobre).includes('esto es del usuario'), 'el contenido viajó legible')
 })
 

@@ -21,6 +21,8 @@ import { WebSocketProxyClient } from '../src/client.js'
 import { makeEncKeypair, setSealingPrimitives, open, isSealed } from '../src/sealing.js'
 import { buildEncPubStatement, readEncPubStatement, ENCPUB_AUD } from '../src/encpub.js'
 import { verifyData, samePubkey, canonicalStringify } from '../src/index.js'
+import { abrir, esSobre, leer } from './_cable.mjs'
+import { encodeFrame } from '../src/binpack.js'
 
 setSealingPrimitives(await import('@dotrino/identity/content'))
 const { makeDeviceKey, signWithDevice, verifyDeviceSig } = await import('@dotrino/identity/capabilities')
@@ -129,7 +131,7 @@ test('un anuncio se lee aunque la pubkey venga escrita de otra forma', async () 
  * Cliente con el socket simulado: lo enviado se guarda y el test hace de servidor.
  * `directorio` es lo que ese proxio sabe de las llaves ajenas.
  */
-function cliente ({ directorio = new Map(), caps = ['encpub'], ...opts } = {}) {
+function cliente ({ directorio = new Map(), caps = ['encpub', 'binary'], ...opts } = {}) {
   const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, ...opts })
   c.caps = caps
   c.enviados = []
@@ -167,7 +169,7 @@ test('sendSealed sin peerEncPub la averigua, la verifica y sella', async () => {
   assert.equal(salidos.length, 1)
   assert.ok(!JSON.stringify(salidos[0]).includes('hunter2'), 'salió en claro')
   // Y lo abre ella, nadie más.
-  assert.deepEqual(await open(JSON.parse(salidos[0].message), ana.encPrivateKey), { secreto: 'hunter2' })
+  assert.deepEqual(await abrir(salidos[0].message, ana.encPrivateKey), { secreto: 'hunter2' })
 })
 
 test('UN PROXIO HOSTIL no puede colar su llave: se rechaza y no sale nada', async () => {
@@ -197,7 +199,7 @@ test('sin llave conocida NO se manda nada, ni en claro', async () => {
 
 test('un proxio que no sabe de esto lo dice con su código, no con un timeout', async () => {
   const ana = await identidad()
-  const c = cliente({ directorio: new Map(), caps: ['channels'] })
+  const c = cliente({ directorio: new Map(), caps: ['channels', 'binary'] })
   await assert.rejects(
     () => c.sendSealed([ana.publickey], { x: 1 }),
     (e) => e.code === 'no-encpub-support')
@@ -222,8 +224,8 @@ test('a varios destinatarios va UNA envoltura por cada uno, y si falta una no sa
   await c.sendSealed([ana.publickey, beto.publickey], { x: 1 })
   const salidos = conContenido(c)
   assert.equal(salidos.length, 2, 'una envoltura por destinatario')
-  assert.deepEqual(await open(JSON.parse(salidos[0].message), ana.encPrivateKey), { x: 1 })
-  assert.deepEqual(await open(JSON.parse(salidos[1].message), beto.encPrivateKey), { x: 1 })
+  assert.deepEqual(await abrir(salidos[0].message, ana.encPrivateKey), { x: 1 })
+  assert.deepEqual(await abrir(salidos[1].message, beto.encPrivateKey), { x: 1 })
 })
 
 test('solo se pregunta UNA vez por llave, aunque se mande varias veces', async () => {
@@ -258,7 +260,7 @@ test('sendSealedTo sella a la identidad que la app dice que hay detrás del toke
   const salidos = conContenido(c)
   assert.deepEqual(salidos[0].to, ['TOKEN-DE-ANA'], 'siguió yendo por token')
   assert.ok(!JSON.stringify(salidos[0]).includes('jugada-en-claro'), 'salió en claro')
-  assert.deepEqual(await open(JSON.parse(salidos[0].message), ana.encPrivateKey), jugada)
+  assert.deepEqual(await abrir(salidos[0].message, ana.encPrivateKey), jugada)
 })
 
 test('sendSealedTo sin decir de quién es el token no manda nada', async () => {
@@ -289,7 +291,7 @@ test('con encPubResolver no se le pregunta al proxio', async () => {
   })
   await c.sendSealed([ana.publickey], { x: 1 })
   assert.equal(c.enviados.filter((m) => m.type === 'enc-lookup').length, 0)
-  assert.deepEqual(await open(JSON.parse(conContenido(c)[0].message), ana.encPrivateKey), { x: 1 })
+  assert.deepEqual(await abrir(conContenido(c)[0].message, ana.encPrivateKey), { x: 1 })
 })
 
 test('un encPubResolver que devuelve basura no pasa', async () => {
@@ -323,14 +325,13 @@ test('DOS DESCONOCIDOS SE SELLAN: nunca se emparejaron y ninguno tenía la llave
   await cAna.sendSealed([beto.publickey], { texto: 'nos vemos a las 8' })
   const cable = conContenido(cAna).at(-1)
   assert.ok(!JSON.stringify(cable).includes('nos vemos'), 'el proxio lo habría leído')
-  assert.ok(isSealed(JSON.parse(cable.message)))
+  assert.ok(esSobre(cable.message))
 
   // Y llega: se lo metemos a beto por donde se lo metería el proxio.
   const recibidos = []
   cBeto.on('message', (from, payload, meta) => recibidos.push({ payload, meta }))
-  cBeto._handleFrame(JSON.stringify({
-    type: 'message', from: 'TOKEN-ANA', from_publickey: ana.publickey, message: cable.message
-  }))
+  cBeto._handleFrame(encodeFrame(
+    { type: 'message', from: 'TOKEN-ANA', from_publickey: ana.publickey }, cable.message).buffer)
   await new Promise((r) => setTimeout(r, 20))
   assert.deepEqual(recibidos[0].payload, { texto: 'nos vemos a las 8' })
   assert.equal(recibidos[0].meta.sealed, true)
@@ -339,5 +340,5 @@ test('DOS DESCONOCIDOS SE SELLAN: nunca se emparejaron y ninguno tenía la llave
   await cBeto.sendSealed([ana.publickey], { texto: 'ahí estaré' })
   const vuelta = conContenido(cBeto).at(-1)
   assert.ok(!JSON.stringify(vuelta).includes('ahí estaré'))
-  assert.deepEqual(await open(JSON.parse(vuelta.message), ana.encPrivateKey), { texto: 'ahí estaré' })
+  assert.deepEqual(await abrir(vuelta.message, ana.encPrivateKey), { texto: 'ahí estaré' })
 })

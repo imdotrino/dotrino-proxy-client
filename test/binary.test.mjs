@@ -80,10 +80,10 @@ test('a binary frame carries the usual header and the raw body', () => {
   assert.throws(() => decodeFrame(new Uint8Array([9, 0, 0, 0, 0])), (e) => e.code === 'bad-frame')
 })
 
-test('a message without bytes still goes as text', async () => {
+test('a message without bytes also goes binary (0.37.0: everything does)', async () => {
   const { a, keyB, received, deliver } = await pairOfClients()
   await a.sendSealedTo('B', { type: 'DM', text: 'hola' }, { peerPubkey: 'PK-B', peerEncPub: keyB.encPub })
-  assert.equal(typeof a.sent[0].message, 'string')
+  assert.ok(a.sent[0].message instanceof Uint8Array)
   await deliver(a.sent)
   assert.equal(received[0].payload.text, 'hola')
 })
@@ -221,10 +221,11 @@ test('the greeting says it understands bytes; to one that did not, bytes are ref
   await assert.rejects(
     a.sendSealed(['PK-B'], { file: { data: fileBytes(10) } }, { peerEncPub: keyB.encPub }),
     (e) => e.code === 'peer-no-binary')
+  // Nor text: everything goes binary now, so one that does not take it gets nothing — and is told.
+  await assert.rejects(
+    a.sendSealedTo('B', { text: 'hola' }, { peerPubkey: 'PK-B', peerEncPub: keyB.encPub }),
+    (e) => e.code === 'peer-no-binary')
   assert.equal(a.sent.length, 0)
-  // Text still goes.
-  await a.sendSealedTo('B', { text: 'hola' }, { peerPubkey: 'PK-B', peerEncPub: keyB.encPub })
-  assert.equal(a.sent.length, 1)
 
   // One that says it does: bytes go.
   a._onHello('C', { t: '__cc_hello__', publickey: 'PK-C', speaks: ['binary'] })
