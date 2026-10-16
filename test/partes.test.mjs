@@ -28,9 +28,14 @@ async function par () {
   b.on('message', (from, payload, meta) => recibidos.push({ from, payload, meta }))
   b.on('error', (e) => errores.push(e))
   // Lo que A mandó, tal como el proxio se lo entrega a B.
+  // Abrir cada parte es asíncrono: se espera a que llegue algo (o a que se rinda), no un
+  // tiempo fijo, que en CI se queda corto.
   const entregar = async (frames) => {
+    const antes = recibidos.length + errores.length
     for (const f of frames) b._handleFrame(JSON.stringify({ type: 'message', from: 'A', from_publickey: 'PK-A', message: f.message }))
-    await new Promise((r) => setTimeout(r, 50))
+    const fin = Date.now() + 15000
+    while (recibidos.length + errores.length === antes && Date.now() < fin) await new Promise((r) => setTimeout(r, 20))
+    await new Promise((r) => setTimeout(r, 50)) // por si llegara algo más (no debe)
   }
   return { a, b, llaveB, recibidos, errores, entregar }
 }

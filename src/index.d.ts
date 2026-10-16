@@ -390,7 +390,7 @@ export function setSealingPrimitives (mod: any): void
  */
 export function identitySealing (identity: any, opts?: { app?: string }): SealingBridge
 
-/** Mensajes grandes en partes (0.33.0). Ver README «Mensajes grandes, en partes». */
+/** Mensajes grandes en partes (0.33.1). Ver README «Mensajes grandes, en partes». */
 export const PART_TAG: '__dotrino_part'
 /** Tamaño de parte por el canal directo, en caracteres de JSON. */
 export const DIRECT_PART_CHARS: number

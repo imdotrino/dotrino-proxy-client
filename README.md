@@ -76,7 +76,7 @@ client.sendToOrQueue(tokenDelOtro, sobreYaCifrado, { peerPubkey })
 Sube al canal directo si lo hay; si el token murió, el mismo mensaje sale por `peerPubkey`
 y salta `token_gone`. Con `requireSealed` se niega igual que `send`.
 
-## Mensajes grandes, en partes (0.33.0+)
+## Mensajes grandes, en partes (0.33.1+)
 
 `sendSealed` y `sendSealedTo` aceptan un mensaje de cualquier tamaño: lo que no cabe en un
 mensaje del camino que toca **sale en partes selladas** y la otra punta lo rearma antes de
