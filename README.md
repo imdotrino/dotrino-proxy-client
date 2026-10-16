@@ -76,6 +76,30 @@ client.sendToOrQueue(tokenDelOtro, sobreYaCifrado, { peerPubkey })
 Sube al canal directo si lo hay; si el token murió, el mismo mensaje sale por `peerPubkey`
 y salta `token_gone`. Con `requireSealed` se niega igual que `send`.
 
+## Mensajes grandes, en partes (0.33.0+)
+
+`sendSealed` y `sendSealedTo` aceptan un mensaje de cualquier tamaño: lo que no cabe en un
+mensaje del camino que toca **sale en partes selladas** y la otra punta lo rearma antes de
+emitir `message` (con `meta.parts`). La app no trocea nada ni sabe por dónde fue.
+
+| Camino | Parte | Tope del mensaje entero |
+|---|---|---|
+| por token, canal directo | 40 KB de JSON (libwebrtc rechaza > 64 KiB), esperando a que el búfer del canal baje | **sin tope** |
+| por token, proxio en vivo | 512 KB de JSON (cabe en la trama de 1 MB ya sellada) | **sin tope** |
+| por pubkey (se queda **esperando** en el proxio) | 512 KB | **8 MB de archivo** (`QUEUE_MAX_CHARS`, ~11 MB de JSON) |
+
+Regla del dueño (2026-10-15): con los dos conectados no hay tope; **lo que pasa de 8 MB no se
+deja esperando en el proxio**. Por pubkey lanza `too-big-for-queue` sin mandar nada; por
+token, si el otro se desconecta a mitad de uno así, no se manda el resto a la cola y se emite
+`error` con ese `code`.
+
+- Cada parte va sellada por su cuenta: el proxio no ve que es una parte ni de qué mensaje.
+- Se rearman agrupando por la llave que selló, en cualquier orden.
+- Una parte con forma mala emite `error` `bad-part`. Un mensaje al que le falta una parte cinco
+  minutos emite `error` `parts-incomplete`: con ella se pierde el mensaje entero, y eso se dice.
+- Una versión anterior del pilar no entiende las partes: un mensaje que antes cabía en una sola
+  trama sigue saliendo igual, así que solo lo grande necesita la versión nueva al otro lado.
+
 ## TURN temporal (0.7.0+)
 
 El proxy actúa como **administrador de credenciales TURN** (Cloudflare): la llave

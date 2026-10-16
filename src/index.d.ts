@@ -389,3 +389,12 @@ export function setSealingPrimitives (mod: any): void
  * `app` marks the envelope so a peer discards what is not its own.
  */
 export function identitySealing (identity: any, opts?: { app?: string }): SealingBridge
+
+/** Mensajes grandes en partes (0.33.0). Ver README «Mensajes grandes, en partes». */
+export const PART_TAG: '__dotrino_part'
+/** Tamaño de parte por el canal directo, en caracteres de JSON. */
+export const DIRECT_PART_CHARS: number
+/** Tamaño de parte por el proxio, en caracteres de JSON. */
+export const PROXY_PART_CHARS: number
+/** Lo más que puede esperar en el proxio (por pubkey), en caracteres de JSON (~8 MB de archivo). */
+export const QUEUE_MAX_CHARS: number
