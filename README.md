@@ -110,6 +110,39 @@ avisan cuando cambia.
 - Una versión anterior del pilar no entiende las partes: un mensaje que antes cabía en una sola
   trama sigue saliendo igual, así que solo lo grande necesita la versión nueva al otro lado.
 
+## Bytes que viajan como bytes (0.35.0+)
+
+Un mensaje puede llevar `Uint8Array` dentro (un archivo, una foto). El pilar lo manda **tal
+cual**, sin base64:
+
+```js
+await client.sendSealedTo(token, { type: 'DM', file: { name: 'foto.jpg', mime: 'image/jpeg', data: bytes } })
+client.on('message', (from, msg) => msg.file.data instanceof Uint8Array) // true
+```
+
+Antes el archivo iba dos veces en base64 (en el JSON de la app y al sellar) y ocupaba **1,78
+veces** su tamaño en el cable. Ahora ocupa lo que pesa más unos cientos de bytes.
+
+Cómo:
+
+- **El paquete** (`pack`/`unpack`, `src/binpack.js`): el objeto se escribe en JSON y cada
+  `Uint8Array` se sustituye por una referencia a los bytes, que van detrás.
+- **El sellado** (`sealing.js`): el paquete se cifra como bytes con una CEK nueva
+  (`encryptBytesWithCek` de `@dotrino/identity` **≥ 0.117.0**), y lo que pasa por el sellado
+  de siempre (el propio o la bóveda del navegador) es **solo la CEK**. Una CEK por mensaje y
+  destinatario: la bóveda sella una vez aunque el mensaje vaya en cien partes.
+- **La trama** (`encodeFrame`/`decodeFrame`): por el proxio, una trama binaria con la cabecera
+  JSON de siempre y el cuerpo en crudo; por el canal directo, los bytes del sobre.
+- Las partes y los topes son los de arriba, medidos en **bytes del paquete**:
+  `QUEUE_MAX_BYTES` (8 MB de archivo), `RELAY_MAX_BYTES` (25 MB), partes de
+  `DIRECT_PART_BYTES` (48 KB) y `PROXY_PART_BYTES` (768 KB).
+
+Lo que **no** lleva bytes sale en texto, igual que antes: las piezas que no saben de esto (las
+apps nativas, versiones anteriores) siguen hablando con todos para lo de siempre. Un mensaje
+con bytes necesita un proxio que anuncie `binary` en sus `caps` (`websocket-proxy` ≥ 1.6.0);
+si no, se lanza `no-binary-support` antes de mandar nada. **Quien lo recibe tiene que ser
+≥ 0.35.0**: una versión anterior no entiende la trama binaria.
+
 ## TURN temporal (0.7.0+)
 
 El proxy actúa como **administrador de credenciales TURN** (Cloudflare): la llave

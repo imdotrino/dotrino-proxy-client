@@ -402,3 +402,17 @@ export const PROXY_PART_CHARS: number
 export const QUEUE_MAX_CHARS: number
 /** Lo más que pasa por el proxio en vivo, en caracteres de JSON (~25 MB de archivo). */
 export const RELAY_MAX_CHARS: number
+/** Los mismos topes para un mensaje que lleva bytes (`Uint8Array`), en bytes de su paquete (0.35.0). */
+export const QUEUE_MAX_BYTES: number
+export const RELAY_MAX_BYTES: number
+export const DIRECT_PART_BYTES: number
+export const PROXY_PART_BYTES: number
+/**
+ * Bytes que viajan como bytes (0.35.0): un mensaje con `Uint8Array` dentro se empaqueta, se
+ * cifra como bytes y sale en una trama binaria. Llega con sus `Uint8Array` en su sitio.
+ */
+export function pack (obj: any): Uint8Array
+export function unpack (bytes: Uint8Array | ArrayBuffer): any
+export function hasBinary (v: any): boolean
+export function encodeFrame (header: Record<string, any>, body: Uint8Array): Uint8Array
+export function decodeFrame (data: Uint8Array | ArrayBuffer): { header: Record<string, any>, body: Uint8Array }

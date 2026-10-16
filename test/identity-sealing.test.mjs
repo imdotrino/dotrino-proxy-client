@@ -19,53 +19,14 @@ import assert from 'node:assert/strict'
 
 import { identitySealing } from '../src/sealing.js'
 
-const ECDH = { name: 'ECDH', namedCurve: 'P-256' }
-const b64 = (b) => Buffer.from(b).toString('base64')
-const unb64 = (s) => new Uint8Array(Buffer.from(s, 'base64'))
-const subtle = globalThis.crypto.subtle
-
-/** Una bóveda de mentira con la MISMA forma que el núcleo real: ECDH + AES-GCM. */
-async function boveda () {
-  const par = await subtle.generateKey(ECDH, true, ['deriveBits'])
-  const jwk = await subtle.exportKey('jwk', par.publicKey)
-  const encPub = JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y })
-  const compartida = async (peerJwkStr) => {
-    const pub = await subtle.importKey('jwk', JSON.parse(peerJwkStr), ECDH, false, [])
-    const bits = await subtle.deriveBits({ name: 'ECDH', public: pub }, par.privateKey, 256)
-    return subtle.importKey('raw', bits, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
-  }
-  const id = async (encPubStr) => b64(await subtle.digest('SHA-256', new TextEncoder().encode(encPubStr))).slice(0, 16)
-  return {
-    encPub,
-    async encrypt (recipients, plaintext) {
-      const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
-      const wrap = {}
-      for (const r of recipients || []) {
-        if (!r?.encryptionPubkey) continue
-        // Igual que el núcleo: la llave que no se puede importar se SALTA en silencio.
-        let key
-        try { key = await compartida(r.encryptionPubkey) } catch (_) { continue }
-        const ct = await subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext))
-        wrap[await id(r.encryptionPubkey)] = { iv: b64(iv), ct: b64(new Uint8Array(ct)) }
-      }
-      return { v: 2, iv: b64(iv), ct: '', wrap }
-    },
-    async abrir (remitenteEncPub, sobre) {
-      const key = await compartida(remitenteEncPub)
-      const mio = sobre.wrap[await id(encPub)]
-      if (!mio) throw new Error('this device is not among the message recipients')
-      const pt = await subtle.decrypt({ name: 'AES-GCM', iv: unb64(mio.iv) }, key, unb64(mio.ct))
-      return new TextDecoder().decode(pt)
-    }
-  }
-}
+import { fakeVault } from './_fake-vault.mjs'
 
 /** Dialecto de la clase `Identity` (la que habla con el iframe). */
 function dialectoIframe (v) {
   return {
     getEncryptionPubkey: async () => v.encPub,
     encrypt: (recipients, plaintext) => v.encrypt(recipients, plaintext),
-    decrypt: async (from, _token, sobre) => ({ plaintext: await v.abrir(from, sobre) })
+    decrypt: async (from, _token, sobre) => ({ plaintext: await v.open(from, sobre) })
   }
 }
 
@@ -74,13 +35,13 @@ function dialectoNucleo (v) {
   return {
     encryptionPubkey: async () => v.encPub,
     encrypt: (recipients, plaintext) => v.encrypt(recipients, plaintext),
-    decrypt: (from, sobre) => v.abrir(from, sobre)
+    decrypt: (from, sobre) => v.open(from, sobre)
   }
 }
 
 test('lo sellado no lleva el mensaje en claro y vuelve entero', async () => {
-  const ana = await boveda()
-  const beto = await boveda()
+  const ana = await fakeVault()
+  const beto = await fakeVault()
   const selladoAna = identitySealing(dialectoIframe(ana), { app: 'prueba' })
   const selladoBeto = identitySealing(dialectoIframe(beto), { app: 'prueba' })
 
@@ -94,8 +55,8 @@ test('lo sellado no lleva el mensaje en claro y vuelve entero', async () => {
 })
 
 test('los dos dialectos se abren el uno al otro', async () => {
-  const ana = await boveda()
-  const beto = await boveda()
+  const ana = await fakeVault()
+  const beto = await fakeVault()
   const desdeIframe = identitySealing(dialectoIframe(ana), { app: 'prueba' })
   const desdeNucleo = identitySealing(dialectoNucleo(beto), { app: 'prueba' })
 
@@ -104,7 +65,7 @@ test('los dos dialectos se abren el uno al otro', async () => {
 })
 
 test('un sobre envuelto PARA NADIE no sale: se lanza con code', async () => {
-  const ana = await boveda()
+  const ana = await fakeVault()
   const sellado = identitySealing(dialectoIframe(ana), { app: 'prueba' })
   // Una llave que la bóveda no puede importar: `encrypt` la salta y devuelve el llavero
   // vacío. Cifrado de verdad, y que no abre nadie.
@@ -114,14 +75,14 @@ test('un sobre envuelto PARA NADIE no sale: se lanza con code', async () => {
 })
 
 test('sin llave del otro lado no se sella', async () => {
-  const ana = await boveda()
+  const ana = await fakeVault()
   const sellado = identitySealing(dialectoIframe(ana), { app: 'prueba' })
   await assert.rejects(() => sellado.seal({ a: 1 }, null), (e) => e.code === 'unsealed')
 })
 
 test('la marca del sobre separa lo mío de lo ajeno', async () => {
-  const ana = await boveda()
-  const beto = await boveda()
+  const ana = await fakeVault()
+  const beto = await fakeVault()
   const mio = identitySealing(dialectoIframe(ana), { app: 'mundial' })
   const ajeno = identitySealing(dialectoIframe(beto), { app: 'passmanager' })
   const sobre = await ajeno.seal({ a: 1 }, ana.encPub)
@@ -134,14 +95,14 @@ test('una identidad que no habla ninguno de los dos dialectos revienta con nombr
 })
 
 test('con la pubkey del destinatario, el sobre llega a TODOS sus aparatos (tarjeta)', async () => {
-  const ana = await boveda()
+  const ana = await fakeVault()
   const recibidos = []
   const id = {
     getEncryptionPubkey: async () => ana.encPub,
     encrypt: async (recipients, pt) => { recibidos.push(...recipients); return ana.encrypt(recipients, pt) },
     decrypt: async () => ({ plaintext: '{}' })
   }
-  const beto = await boveda()
+  const beto = await fakeVault()
   await identitySealing(id, { app: 'prueba' }).seal({ a: 1 }, beto.encPub, { publickey: 'PUB-BETO' })
   // La bóveda expande por la tarjeta, y la tarjeta se busca por `publickey`: sin ella,
   // solo abría el aparato que anunció la llave.
@@ -149,8 +110,8 @@ test('con la pubkey del destinatario, el sobre llega a TODOS sus aparatos (tarje
 })
 
 test('senderOf dice quién selló: la llave de cifrado de quien armó el sobre', async () => {
-  const ana = await boveda()
-  const beto = await boveda()
+  const ana = await fakeVault()
+  const beto = await fakeVault()
   const sellado = identitySealing(dialectoIframe(ana), { app: 'prueba' })
   const sobre = await sellado.seal({ a: 1 }, beto.encPub)
   assert.equal(sellado.senderOf(sobre), ana.encPub)
