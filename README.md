@@ -536,8 +536,11 @@ trabaja. Registra una URL y el proxio la llama cuando llega algo para su cuenta 
 nadie suyo conectado; el mensaje espera en la cola de siempre y se entrega al identificarse.
 
 ```js
-await client.registerWake({ publicKey: commPub, sign: commSign, url: 'https://…/wake?k=…', acta })
+await client.registerWake({ publicKey: commPub, sign: commSign, url: 'https://…/wake?k=…', acta, channel })
 ```
+
+Con `channel` (0.38.0+), listar ese canal vacío también la despierta, y `list()` devuelve el
+array con `waking: true` para que quien busca espere unos segundos.
 
 - Firma la **llave de comunicación** de la bóveda (no la maestra); el `acta` prueba que es
   miembro de la cuenta, y el timbre se guarda para la cuenta (`profileId`).

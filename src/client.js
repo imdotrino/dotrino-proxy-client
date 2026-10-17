@@ -432,7 +432,11 @@ export class WebSocketProxyClient {
   async list (channelName) {
     const channel = await buildSignedChannel(channelName)
     const res = await this._request({ type: 'list', channel }, 'channel_list', 'channel')
-    return res.tokens || []
+    const tokens = res.tokens || []
+    // Vacío pero con una bóveda despertándose detrás (websocket-proxy ≥ 1.7.0): quien lista
+    // puede esperar unos segundos en vez de concluir que no hay nadie.
+    if (res.waking) tokens.waking = true
+    return tokens
   }
 
   /** Alias for list() to ease migration from older clients. */
@@ -1377,11 +1381,14 @@ export class WebSocketProxyClient {
    * `acta` es lo que prueba que esa llave es de la cuenta: el timbre se guarda para la cuenta
    * (`profileId`), que es a quien le escriben los servicios.
    *
-   * @param {{ publicKey:string, sign:Function, url:string, acta:object }} opts
+   * `channel` (opcional): el canal donde la buscan quienes no saben su llave —quien entra con
+   * usuario y contraseña—. Listarlo vacío también la despierta (`list()` devuelve `waking`).
+   *
+   * @param {{ publicKey:string, sign:Function, url:string, acta:object, channel?:string }} opts
    */
-  async registerWake ({ publicKey, sign, url, acta } = {}) {
+  async registerWake ({ publicKey, sign, url, acta, channel } = {}) {
     if (!publicKey || typeof sign !== 'function' || !url || !acta) throw errorWithCode('registerWake requires { publicKey, sign, url, acta }', 'bad-args')
-    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify({ kind: 'wake', url }), ts: Date.now() }
+    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify({ kind: 'wake', url, ...(channel ? { channel } : {}) }), ts: Date.now() }
     const signature = await normalizeSignature(sign, data)
     const r = await this._request({ type: 'push-subscribe', data, signature, acta }, 'push-subscribed')
     return { kind: 'wake', url, profile: r?.publickey || null }

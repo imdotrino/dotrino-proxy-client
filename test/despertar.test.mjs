@@ -24,3 +24,19 @@ test('sin acta no se registra: no habría cómo saber de qué cuenta es el timbr
   const c = new WebSocketProxyClient({ autoReconnect: false })
   await assert.rejects(c.registerWake({ publicKey: 'COMM', sign: async () => 'f', url: 'https://x' }), (e) => e.code === 'bad-args')
 })
+
+test('list() dice que la bóveda se está despertando', async () => {
+  const c = new WebSocketProxyClient({ autoReconnect: false })
+  c._request = () => Promise.resolve({ type: 'channel_list', tokens: [], waking: true })
+  const t = await c.list('dotrino-vault-AB12-CD34-EF56')
+  assert.deepEqual([...t], [])
+  assert.equal(t.waking, true)
+})
+
+test('registerWake con canal lo manda dentro de lo firmado', async () => {
+  const c = new WebSocketProxyClient({ autoReconnect: false })
+  c._request = () => Promise.resolve({ type: 'push-subscribed', publickey: 'P' })
+  let firmado = null
+  await c.registerWake({ publicKey: 'C', sign: async (d) => { firmado = d; return 'f' }, url: 'https://x', acta: {}, channel: 'dotrino-vault-AB12-CD34-EF56' })
+  assert.equal(JSON.parse(firmado.subscription).channel, 'dotrino-vault-AB12-CD34-EF56')
+})
