@@ -222,6 +222,8 @@ export function logStats (opts?: { log?: (line: string) => void; everyMs?: numbe
   stop: () => Promise<void>
 }
 
+export type ChannelTokens = string[] & { waking?: true }
+
 export class WebSocketProxyClient {
   constructor (options?: WebSocketProxyClientOptions)
   readonly isConnected: boolean
@@ -235,8 +237,9 @@ export class WebSocketProxyClient {
   updateConfig (options: WebSocketProxyClientOptions): void
   publish (channel: string, extraData?: Record<string, any>): Promise<any>
   unpublish (channel: string): Promise<any>
-  list (channel: string): Promise<string[]>
-  listChannel (channel: string): Promise<string[]>
+  /** `waking` (websocket-proxy ≥ 1.7.0): el canal está vacío, pero hay una bóveda despertándose para él. */
+  list (channel: string): Promise<ChannelTokens>
+  listChannel (channel: string): Promise<ChannelTokens>
   /** Observar un canal read-only: recibir joined/left/peer_disconnected en vivo sin figurar como miembro. Devuelve los tokens actuales. */
   watch (channel: string): Promise<string[]>
   /** Dejar de observar un canal. */
