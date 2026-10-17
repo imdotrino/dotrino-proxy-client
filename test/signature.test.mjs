@@ -8,46 +8,46 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import './_entorno.mjs'   // localStorage: ver la nota de ahi, no es opcional
+import './_env.mjs'   // localStorage: ver la nota de ahi, no es opcional
 
 const { buildSignedChannel, getPublicKeyJwk, signData } = await import('../src/signature.js')
 const { canonicalStringify } = await import('../src/canonical.js')
 
 test('el canal va bajo `name`, y la metadata de la app no lo pisa', async () => {
-  const sobre = await buildSignedChannel('sala-42', { name: 'Mi sala bonita', nickname: 'ana' })
-  assert.equal(sobre.data.name, 'sala-42', 'el extra `name` NO puede cambiar el canal')
-  assert.equal(sobre.data.nickname, 'ana', 'el resto de la metadata sí viaja')
+  const envelope = await buildSignedChannel('sala-42', { name: 'Mi sala bonita', nickname: 'ana' })
+  assert.equal(envelope.data.name, 'sala-42', 'el extra `name` NO puede cambiar el canal')
+  assert.equal(envelope.data.nickname, 'ana', 'el resto de la metadata sí viaja')
 })
 
 test('la publickey tampoco se puede suplantar desde la metadata', async () => {
   const real = await getPublicKeyJwk()
-  const sobre = await buildSignedChannel('c', { publickey: '{"kty":"MENTIRA"}' })
-  assert.equal(sobre.data.publickey, real)
+  const envelope = await buildSignedChannel('c', { publickey: '{"kty":"MENTIRA"}' })
+  assert.equal(envelope.data.publickey, real)
 })
 
 test('la firma valida contra la publickey del propio sobre', async () => {
-  const sobre = await buildSignedChannel('canal', { nickname: 'ana' })
-  const jwk = JSON.parse(sobre.data.publickey)
+  const envelope = await buildSignedChannel('canal', { nickname: 'ana' })
+  const jwk = JSON.parse(envelope.data.publickey)
   const pub = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify'])
   const ok = await crypto.subtle.verify(
     { name: 'ECDSA', hash: { name: 'SHA-256' } },
     pub,
-    Buffer.from(sobre.signature, 'base64'),
-    new TextEncoder().encode(canonicalStringify(sobre.data))
+    Buffer.from(envelope.signature, 'base64'),
+    new TextEncoder().encode(canonicalStringify(envelope.data))
   )
   assert.equal(ok, true, 'el proxy verifica exactamente así: sobre el canonical del data')
 })
 
 test('tocar un solo campo del data invalida la firma', async () => {
-  const sobre = await buildSignedChannel('canal', { nickname: 'ana' })
-  const jwk = JSON.parse(sobre.data.publickey)
+  const envelope = await buildSignedChannel('canal', { nickname: 'ana' })
+  const jwk = JSON.parse(envelope.data.publickey)
   const pub = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify'])
-  const manipulado = { ...sobre.data, nickname: 'mallory' }
+  const tampered = { ...envelope.data, nickname: 'mallory' }
   const ok = await crypto.subtle.verify(
     { name: 'ECDSA', hash: { name: 'SHA-256' } },
     pub,
-    Buffer.from(sobre.signature, 'base64'),
-    new TextEncoder().encode(canonicalStringify(manipulado))
+    Buffer.from(envelope.signature, 'base64'),
+    new TextEncoder().encode(canonicalStringify(tampered))
   )
   assert.equal(ok, false)
 })
@@ -76,32 +76,32 @@ test('firmar dos datos distintos da firmas distintas', async () => {
 test('sin localStorage, la identidad PERSISTE en el almacén inyectado', async () => {
   const { getPublicKeyJwk, setKeypairStore } = await import('../src/signature.js')
 
-  let guardado = null
+  let saved = null
   const store = {
-    async get () { return guardado },
-    async set (pair) { guardado = pair },
+    async get () { return saved },
+    async set (pair) { saved = pair },
   }
 
   setKeypairStore(store)
-  const primera = await getPublicKeyJwk()
-  assert.ok(guardado, 'no guardó nada')
+  const firstOne = await getPublicKeyJwk()
+  assert.ok(saved, 'no guardó nada')
 
   // Segundo arranque: el worker despertó y la caché en memoria se perdió.
   setKeypairStore(store)
-  const segunda = await getPublicKeyJwk()
-  assert.equal(segunda, primera, 'la llave cambió entre arranques')
+  const second = await getPublicKeyJwk()
+  assert.equal(second, firstOne, 'la llave cambió entre arranques')
 })
 
 test('sin localStorage, la privada NO sale del almacén como JWK', async () => {
   const { getPublicKeyJwk, signData, setKeypairStore } = await import('../src/signature.js')
 
-  let guardado = null
-  setKeypairStore({ async get () { return guardado }, async set (p) { guardado = p } })
+  let saved = null
+  setKeypairStore({ async get () { return saved }, async set (p) { saved = p } })
   await getPublicKeyJwk()
 
-  assert.equal(guardado.privateKey.extractable, false)
-  assert.equal(guardado.privateKey.type, 'private')
-  await assert.rejects(() => crypto.subtle.exportKey('jwk', guardado.privateKey))
+  assert.equal(saved.privateKey.extractable, false)
+  assert.equal(saved.privateKey.type, 'private')
+  await assert.rejects(() => crypto.subtle.exportKey('jwk', saved.privateKey))
 
   // Y aun así firma, que es para lo único que se necesita.
   const signature = await signData({ op: 'test', ts: 1 })
@@ -115,11 +115,11 @@ test('un almacén que serializa necesita { extractable: true }, y si no se dice'
 
   // Un almacén de disco: exporta la privada a JWK, como hace cualquier persistencia
   // que no sea IndexedDB.
-  let guardado = null
+  let saved = null
   const storeDeDisco = {
-    async get () { return guardado },
+    async get () { return saved },
     async set ({ privateKey, publicKey, publicJwk }) {
-      guardado = {
+      saved = {
         privateJwk: await crypto.subtle.exportKey('jwk', privateKey),
         publicJwk: publicJwk || await crypto.subtle.exportKey('jwk', publicKey),
       }
@@ -129,33 +129,33 @@ test('un almacén que serializa necesita { extractable: true }, y si no se dice'
   // Sin declararlo, no puede guardar — y tiene que DECIRLO, no callarse: si se
   // callara, la identidad cambiaría en cada arranque y se descubriría días después.
   const errores = []
-  const origen = console.error
+  const origin = console.error
   console.error = (...a) => errores.push(a.join(' '))
   setKeypairStore(storeDeDisco)
   await getPublicKeyJwk()
-  console.error = origen
+  console.error = origin
 
-  assert.equal(guardado, null, 'no debería haber podido guardar')
+  assert.equal(saved, null, 'no debería haber podido guardar')
   assert.ok(errores.some(e => /could not persist/.test(e)), 'falló en silencio')
   assert.ok(errores.some(e => /extractable/.test(e)), 'no dice cómo arreglarlo')
 
   // Declarándolo, guarda y la identidad sobrevive al reinicio.
   setKeypairStore(storeDeDisco, { extractable: true })
-  const primera = await getPublicKeyJwk()
-  assert.ok(guardado, 'sigue sin guardar')
+  const firstOne = await getPublicKeyJwk()
+  assert.ok(saved, 'sigue sin guardar')
 
   setKeypairStore({
     async get () {
       const alg = { name: 'ECDSA', namedCurve: 'P-256' }
       return {
-        privateKey: await crypto.subtle.importKey('jwk', guardado.privateJwk, alg, true, ['sign']),
-        publicKey: await crypto.subtle.importKey('jwk', guardado.publicJwk, alg, true, ['verify']),
-        publicJwk: guardado.publicJwk,
+        privateKey: await crypto.subtle.importKey('jwk', saved.privateJwk, alg, true, ['sign']),
+        publicKey: await crypto.subtle.importKey('jwk', saved.publicJwk, alg, true, ['verify']),
+        publicJwk: saved.publicJwk,
       }
     },
     async set () {},
   }, { extractable: true })
-  assert.equal(await getPublicKeyJwk(), primera, 'la identidad no sobrevivió al reinicio')
+  assert.equal(await getPublicKeyJwk(), firstOne, 'la identidad no sobrevivió al reinicio')
 
   setKeypairStore(null)
 })

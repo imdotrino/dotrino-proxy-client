@@ -13,7 +13,7 @@
  *   3. sin llave no sale NADA, ni siquiera en claro;
  *   4. dos partes que no se han emparejado nunca acaban sellándose la una a la otra.
  */
-import './_entorno.mjs'
+import './_env.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -26,14 +26,14 @@ setSealingPrimitives(await import('@dotrino/identity/content'))
 const { makeDeviceKey, signWithDevice, verifyDeviceSig } = await import('@dotrino/identity/capabilities')
 
 /** Una identidad completa: llave de firma (la del cable) + llave de cifrado. */
-async function identidad () {
-  const firma = await makeDeviceKey()
-  const cifrado = await makeEncKeypair()
+async function identity () {
+  const signingKey = await makeDeviceKey()
+  const encKeys = await makeEncKeypair()
   return {
-    publickey: firma.publickey,
-    encPub: cifrado.encPub,
-    encPrivateKey: cifrado.privateKey,
-    sign: (data) => signWithDevice({ privateJwk: firma.privateJwk, publickey: firma.publickey, data })
+    publickey: signingKey.publickey,
+    encPub: encKeys.encPub,
+    encPrivateKey: encKeys.privateKey,
+    sign: (data) => signWithDevice({ privateJwk: signingKey.privateJwk, publickey: signingKey.publickey, data })
   }
 }
 
@@ -42,45 +42,45 @@ async function identidad () {
 // ---------------------------------------------------------------------------
 
 test('el anuncio ata la llave de cifrado a la identidad que lo firma', async () => {
-  const ana = await identidad()
-  const statement = await buildEncPubStatement({ publickey: ana.publickey, encPub: ana.encPub, sign: ana.sign })
+  const alice = await identity()
+  const statement = await buildEncPubStatement({ publickey: alice.publickey, encPub: alice.encPub, sign: alice.sign })
 
   assert.equal(statement.data.aud, ENCPUB_AUD)
-  assert.equal(statement.data.publickey, ana.publickey)
-  assert.equal(await readEncPubStatement(statement, { publickey: ana.publickey }), ana.encPub)
+  assert.equal(statement.data.publickey, alice.publickey)
+  assert.equal(await readEncPubStatement(statement, { publickey: alice.publickey }), alice.encPub)
 })
 
 test('una llave NO atada se rechaza: firmada por otro', async () => {
-  const ana = await identidad()
-  const ladron = await identidad()
+  const alice = await identity()
+  const thief = await identity()
 
   // El cuerpo dice «la llave de ana es la del ladrón» y lo firma el ladrón. Es exactamente
   // lo que haría quien quiere leer: poner su llave donde va la del otro.
-  const data = { v: 1, op: 'encpub', aud: ENCPUB_AUD, publickey: ana.publickey, encpub: ladron.encPub, ts: Date.now() }
-  const { signature } = await ladron.sign(data)
+  const data = { v: 1, op: 'encpub', aud: ENCPUB_AUD, publickey: alice.publickey, encpub: thief.encPub, ts: Date.now() }
+  const { signature } = await thief.sign(data)
 
   await assert.rejects(
-    () => readEncPubStatement({ data, signature }, { publickey: ana.publickey }),
+    () => readEncPubStatement({ data, signature }, { publickey: alice.publickey }),
     (e) => e.code === 'encpub-unverified')
 })
 
 test('un anuncio de OTRA identidad no vale aunque esté bien firmado', async () => {
-  const ana = await identidad()
-  const beto = await identidad()
-  const suyo = await buildEncPubStatement({ publickey: beto.publickey, encPub: beto.encPub, sign: beto.sign })
+  const alice = await identity()
+  const bob = await identity()
+  const theirs = await buildEncPubStatement({ publickey: bob.publickey, encPub: bob.encPub, sign: bob.sign })
 
   // Firma impecable… de beto. Preguntábamos por ana.
   await assert.rejects(
-    () => readEncPubStatement(suyo, { publickey: ana.publickey }),
+    () => readEncPubStatement(theirs, { publickey: alice.publickey }),
     (e) => e.code === 'encpub-unverified')
 })
 
 test('un anuncio con el destinatario cambiado no vale', async () => {
-  const ana = await identidad()
-  const data = { v: 1, op: 'encpub', aud: 'otra-cosa', publickey: ana.publickey, encpub: ana.encPub, ts: Date.now() }
-  const { signature } = await ana.sign(data)
+  const alice = await identity()
+  const data = { v: 1, op: 'encpub', aud: 'otra-cosa', publickey: alice.publickey, encpub: alice.encPub, ts: Date.now() }
+  const { signature } = await alice.sign(data)
   await assert.rejects(
-    () => readEncPubStatement({ data, signature }, { publickey: ana.publickey }),
+    () => readEncPubStatement({ data, signature }, { publickey: alice.publickey }),
     (e) => e.code === 'encpub-unverified')
 })
 
@@ -108,17 +108,17 @@ test('samePubkey: la misma llave escrita de otra forma sigue siendo la misma', a
   assert.notEqual(alReves, d.publickey, 'el test no prueba nada si los strings ya son iguales')
   assert.equal(samePubkey(d.publickey, alReves), true)
 
-  const otra = await makeDeviceKey()
-  assert.equal(samePubkey(d.publickey, otra.publickey), false)
+  const another = await makeDeviceKey()
+  assert.equal(samePubkey(d.publickey, another.publickey), false)
   assert.equal(samePubkey(d.publickey, 'no-es-json'), false)
 })
 
 test('un anuncio se lee aunque la pubkey venga escrita de otra forma', async () => {
-  const ana = await identidad()
-  const statement = await buildEncPubStatement({ publickey: ana.publickey, encPub: ana.encPub, sign: ana.sign })
-  const j = JSON.parse(ana.publickey)
+  const alice = await identity()
+  const statement = await buildEncPubStatement({ publickey: alice.publickey, encPub: alice.encPub, sign: alice.sign })
+  const j = JSON.parse(alice.publickey)
   const alReves = JSON.stringify({ y: j.y, x: j.x, crv: j.crv, kty: j.kty })
-  assert.equal(await readEncPubStatement(statement, { publickey: alReves }), ana.encPub)
+  assert.equal(await readEncPubStatement(statement, { publickey: alReves }), alice.encPub)
 })
 
 // ---------------------------------------------------------------------------
@@ -129,115 +129,115 @@ test('un anuncio se lee aunque la pubkey venga escrita de otra forma', async () 
  * Cliente con el socket simulado: lo enviado se guarda y el test hace de servidor.
  * `directorio` es lo que ese proxio sabe de las llaves ajenas.
  */
-function cliente ({ directorio = new Map(), caps = ['encpub'], ...opts } = {}) {
+function client ({ directory = new Map(), caps = ['encpub'], ...opts } = {}) {
   const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, ...opts })
   c.caps = caps
-  c.enviados = []
+  c.sent = []
   c._sendRaw = (msg) => {
-    c.enviados.push(msg)
+    c.sent.push(msg)
     if (msg.type === 'enc-lookup') {
       const keys = []
       const missing = []
       for (const pk of msg.publickeys) {
-        const s = directorio.get(pk)
+        const s = directory.get(pk)
         if (s) keys.push(s); else missing.push(pk)
       }
       queueMicrotask(() => c._handleFrame(JSON.stringify({ type: 'enc-lookup', id: msg.id, keys, missing })))
     }
     if (msg.type === 'encpub') {
-      directorio.set(msg.data.publickey, { data: msg.data, signature: msg.signature })
+      directory.set(msg.data.publickey, { data: msg.data, signature: msg.signature })
       queueMicrotask(() => c._handleFrame(JSON.stringify({ type: 'encpub-announced', id: msg.id, stored: true })))
     }
   }
   return c
 }
 
-const conContenido = (c) => c.enviados.filter((m) => m.message !== undefined)
+const withContent = (c) => c.sent.filter((m) => m.message !== undefined)
 
 test('sendSealed sin peerEncPub la averigua, la verifica y sella', async () => {
-  const ana = await identidad()
-  const directorio = new Map()
-  directorio.set(ana.publickey,
-    await buildEncPubStatement({ publickey: ana.publickey, encPub: ana.encPub, sign: ana.sign }))
+  const alice = await identity()
+  const directory = new Map()
+  directory.set(alice.publickey,
+    await buildEncPubStatement({ publickey: alice.publickey, encPub: alice.encPub, sign: alice.sign }))
 
-  const c = cliente({ directorio })
-  await c.sendSealed([ana.publickey], { secreto: 'hunter2' })
+  const c = client({ directory })
+  await c.sendSealed([alice.publickey], { secret: 'hunter2' })
 
-  const salidos = conContenido(c)
-  assert.equal(salidos.length, 1)
-  assert.ok(!JSON.stringify(salidos[0]).includes('hunter2'), 'salió en claro')
+  const outgoing = withContent(c)
+  assert.equal(outgoing.length, 1)
+  assert.ok(!JSON.stringify(outgoing[0]).includes('hunter2'), 'salió en claro')
   // Y lo abre ella, nadie más.
-  assert.deepEqual(await open(JSON.parse(salidos[0].message), ana.encPrivateKey), { secreto: 'hunter2' })
+  assert.deepEqual(await open(JSON.parse(outgoing[0].message), alice.encPrivateKey), { secret: 'hunter2' })
 })
 
 test('UN PROXIO HOSTIL no puede colar su llave: se rechaza y no sale nada', async () => {
-  const ana = await identidad()
-  const proxioMalo = await identidad()
-  const directorio = new Map()
+  const alice = await identity()
+  const badProxy = await identity()
+  const directory = new Map()
   // El proxio contesta a «¿cuál es la llave de ana?» con la suya, bien firmada… por él.
-  const data = { v: 1, op: 'encpub', aud: ENCPUB_AUD, publickey: ana.publickey, encpub: proxioMalo.encPub, ts: Date.now() }
-  const { signature } = await proxioMalo.sign(data)
-  directorio.set(ana.publickey, { data, signature })
+  const data = { v: 1, op: 'encpub', aud: ENCPUB_AUD, publickey: alice.publickey, encpub: badProxy.encPub, ts: Date.now() }
+  const { signature } = await badProxy.sign(data)
+  directory.set(alice.publickey, { data, signature })
 
-  const c = cliente({ directorio })
+  const c = client({ directory })
   await assert.rejects(
-    () => c.sendSealed([ana.publickey], { secreto: 'hunter2' }),
+    () => c.sendSealed([alice.publickey], { secret: 'hunter2' }),
     (e) => e.code === 'encpub-unverified')
-  assert.equal(conContenido(c).length, 0, 'mandó algo igual')
+  assert.equal(withContent(c).length, 0, 'mandó algo igual')
 })
 
 test('sin llave conocida NO se manda nada, ni en claro', async () => {
-  const ana = await identidad()
-  const c = cliente({ directorio: new Map() })
+  const alice = await identity()
+  const c = client({ directory: new Map() })
   await assert.rejects(
-    () => c.sendSealed([ana.publickey], { secreto: 'hunter2' }),
+    () => c.sendSealed([alice.publickey], { secret: 'hunter2' }),
     (e) => e.code === 'no-encpub')
-  assert.equal(conContenido(c).length, 0)
+  assert.equal(withContent(c).length, 0)
 })
 
 test('un proxio que no sabe de esto lo dice con su código, no con un timeout', async () => {
-  const ana = await identidad()
-  const c = cliente({ directorio: new Map(), caps: ['channels'] })
+  const alice = await identity()
+  const c = client({ directory: new Map(), caps: ['channels'] })
   await assert.rejects(
-    () => c.sendSealed([ana.publickey], { x: 1 }),
+    () => c.sendSealed([alice.publickey], { x: 1 }),
     (e) => e.code === 'no-encpub-support')
-  assert.equal(conContenido(c).length, 0)
+  assert.equal(withContent(c).length, 0)
 })
 
 test('a varios destinatarios va UNA envoltura por cada uno, y si falta una no sale ninguna', async () => {
-  const ana = await identidad()
-  const beto = await identidad()
-  const directorio = new Map()
-  directorio.set(ana.publickey, await buildEncPubStatement({ publickey: ana.publickey, encPub: ana.encPub, sign: ana.sign }))
+  const alice = await identity()
+  const bob = await identity()
+  const directory = new Map()
+  directory.set(alice.publickey, await buildEncPubStatement({ publickey: alice.publickey, encPub: alice.encPub, sign: alice.sign }))
 
-  const c = cliente({ directorio })
+  const c = client({ directory })
   // Falta la de beto: no sale NADA, tampoco lo de ana. Mandar a medias dejaría a la app
   // creyendo que el mensaje llegó, sin saber a quién le falta.
   await assert.rejects(
-    () => c.sendSealed([ana.publickey, beto.publickey], { x: 1 }),
+    () => c.sendSealed([alice.publickey, bob.publickey], { x: 1 }),
     (e) => e.code === 'no-encpub')
-  assert.equal(conContenido(c).length, 0)
+  assert.equal(withContent(c).length, 0)
 
-  directorio.set(beto.publickey, await buildEncPubStatement({ publickey: beto.publickey, encPub: beto.encPub, sign: beto.sign }))
-  await c.sendSealed([ana.publickey, beto.publickey], { x: 1 })
-  const salidos = conContenido(c)
-  assert.equal(salidos.length, 2, 'una envoltura por destinatario')
-  assert.deepEqual(await open(JSON.parse(salidos[0].message), ana.encPrivateKey), { x: 1 })
-  assert.deepEqual(await open(JSON.parse(salidos[1].message), beto.encPrivateKey), { x: 1 })
+  directory.set(bob.publickey, await buildEncPubStatement({ publickey: bob.publickey, encPub: bob.encPub, sign: bob.sign }))
+  await c.sendSealed([alice.publickey, bob.publickey], { x: 1 })
+  const outgoing = withContent(c)
+  assert.equal(outgoing.length, 2, 'una envoltura por destinatario')
+  assert.deepEqual(await open(JSON.parse(outgoing[0].message), alice.encPrivateKey), { x: 1 })
+  assert.deepEqual(await open(JSON.parse(outgoing[1].message), bob.encPrivateKey), { x: 1 })
 })
 
 test('solo se pregunta UNA vez por llave, aunque se mande varias veces', async () => {
-  const ana = await identidad()
-  const directorio = new Map()
-  directorio.set(ana.publickey, await buildEncPubStatement({ publickey: ana.publickey, encPub: ana.encPub, sign: ana.sign }))
-  const c = cliente({ directorio })
+  const alice = await identity()
+  const directory = new Map()
+  directory.set(alice.publickey, await buildEncPubStatement({ publickey: alice.publickey, encPub: alice.encPub, sign: alice.sign }))
+  const c = client({ directory })
 
   await Promise.all([
-    c.sendSealed([ana.publickey], { n: 1 }),
-    c.sendSealed([ana.publickey], { n: 2 })
+    c.sendSealed([alice.publickey], { n: 1 }),
+    c.sendSealed([alice.publickey], { n: 2 })
   ])
-  await c.sendSealed([ana.publickey], { n: 3 })
-  assert.equal(c.enviados.filter((m) => m.type === 'enc-lookup').length, 1)
+  await c.sendSealed([alice.publickey], { n: 3 })
+  assert.equal(c.sent.filter((m) => m.type === 'enc-lookup').length, 1)
 })
 
 // ---------------------------------------------------------------------------
@@ -245,36 +245,36 @@ test('solo se pregunta UNA vez por llave, aunque se mande varias veces', async (
 // ---------------------------------------------------------------------------
 
 test('sendSealedTo sella a la identidad que la app dice que hay detrás del token', async () => {
-  const ana = await identidad()
-  const directorio = new Map()
-  directorio.set(ana.publickey, await buildEncPubStatement({ publickey: ana.publickey, encPub: ana.encPub, sign: ana.sign }))
+  const alice = await identity()
+  const directory = new Map()
+  directory.set(alice.publickey, await buildEncPubStatement({ publickey: alice.publickey, encPub: alice.encPub, sign: alice.sign }))
 
-  const c = cliente({ directorio })
+  const c = client({ directory })
   // Un marcador largo: con «e4» a secas la prueba fallaba al azar, porque el texto cifrado
   // también contiene «e4» de vez en cuando.
-  const jugada = { jugada: 'e4-jugada-en-claro' }
-  await c.sendSealedTo('TOKEN-DE-ANA', jugada, { peerPubkey: ana.publickey })
+  const move = { move: 'e4-jugada-en-claro' }
+  await c.sendSealedTo('TOKEN-DE-ANA', move, { peerPubkey: alice.publickey })
 
-  const salidos = conContenido(c)
-  assert.deepEqual(salidos[0].to, ['TOKEN-DE-ANA'], 'siguió yendo por token')
-  assert.ok(!JSON.stringify(salidos[0]).includes('jugada-en-claro'), 'salió en claro')
-  assert.deepEqual(await open(JSON.parse(salidos[0].message), ana.encPrivateKey), jugada)
+  const outgoing = withContent(c)
+  assert.deepEqual(outgoing[0].to, ['TOKEN-DE-ANA'], 'siguió yendo por token')
+  assert.ok(!JSON.stringify(outgoing[0]).includes('jugada-en-claro'), 'salió en claro')
+  assert.deepEqual(await open(JSON.parse(outgoing[0].message), alice.encPrivateKey), move)
 })
 
 test('sendSealedTo sin decir de quién es el token no manda nada', async () => {
-  const c = cliente()
+  const c = client()
   // `no-peer-identity` y no `unsealed`: no es que se intentara mandar en claro, es que
   // nadie ha dicho de quién es ese token. Se arregla saludando, no sellando.
   await assert.rejects(
     () => c.sendSealedTo('TOKEN', { x: 1 }, {}),
     (e) => e.code === 'no-peer-identity')
-  assert.equal(conContenido(c).length, 0)
+  assert.equal(withContent(c).length, 0)
 })
 
 test('requireSealed también corta el `send` por token, no solo el de pubkey', async () => {
-  const c = cliente({ requireSealed: true })
-  assert.throws(() => c.send('TOKEN', { secreto: 'hunter2' }), (e) => e.code === 'unsealed')
-  assert.equal(conContenido(c).length, 0)
+  const c = client({ requireSealed: true })
+  assert.throws(() => c.send('TOKEN', { secret: 'hunter2' }), (e) => e.code === 'unsealed')
+  assert.equal(withContent(c).length, 0)
 })
 
 // ---------------------------------------------------------------------------
@@ -282,23 +282,23 @@ test('requireSealed también corta el `send` por token, no solo el de pubkey', a
 // ---------------------------------------------------------------------------
 
 test('con encPubResolver no se le pregunta al proxio', async () => {
-  const ana = await identidad()
-  const c = cliente({
-    directorio: new Map(),           // el proxio no sabe nada
-    encPubResolver: (pub) => (pub === ana.publickey ? ana.encPub : null)
+  const alice = await identity()
+  const c = client({
+    directory: new Map(),           // el proxio no sabe nada
+    encPubResolver: (pub) => (pub === alice.publickey ? alice.encPub : null)
   })
-  await c.sendSealed([ana.publickey], { x: 1 })
-  assert.equal(c.enviados.filter((m) => m.type === 'enc-lookup').length, 0)
-  assert.deepEqual(await open(JSON.parse(conContenido(c)[0].message), ana.encPrivateKey), { x: 1 })
+  await c.sendSealed([alice.publickey], { x: 1 })
+  assert.equal(c.sent.filter((m) => m.type === 'enc-lookup').length, 0)
+  assert.deepEqual(await open(JSON.parse(withContent(c)[0].message), alice.encPrivateKey), { x: 1 })
 })
 
 test('un encPubResolver que devuelve basura no pasa', async () => {
-  const ana = await identidad()
-  const c = cliente({ directorio: new Map(), encPubResolver: () => 'no-soy-un-jwk' })
+  const alice = await identity()
+  const c = client({ directory: new Map(), encPubResolver: () => 'no-soy-un-jwk' })
   await assert.rejects(
-    () => c.sendSealed([ana.publickey], { x: 1 }),
+    () => c.sendSealed([alice.publickey], { x: 1 }),
     (e) => e.code === 'encpub-unverified')
-  assert.equal(conContenido(c).length, 0)
+  assert.equal(withContent(c).length, 0)
 })
 
 // ---------------------------------------------------------------------------
@@ -306,38 +306,38 @@ test('un encPubResolver que devuelve basura no pasa', async () => {
 // ---------------------------------------------------------------------------
 
 test('DOS DESCONOCIDOS SE SELLAN: nunca se emparejaron y ninguno tenía la llave del otro', async () => {
-  const ana = await identidad()
-  const beto = await identidad()
+  const alice = await identity()
+  const bob = await identity()
 
   // Un solo proxio de mentira para los dos, con su directorio compartido. Lo único que
   // sabe cada uno del otro es su PUBKEY —lo que da un canal público, una invitación o el
   // saludo de una sala—. Ni contactos, ni cita, ni llave intercambiada.
-  const directorio = new Map()
-  const cAna = cliente({ directorio, requireSealed: true, myEncPrivateKey: ana.encPrivateKey })
-  const cBeto = cliente({ directorio, requireSealed: true, myEncPrivateKey: beto.encPrivateKey })
+  const directory = new Map()
+  const cAlice = client({ directory, requireSealed: true, myEncPrivateKey: alice.encPrivateKey })
+  const cBob = client({ directory, requireSealed: true, myEncPrivateKey: bob.encPrivateKey })
 
-  await cAna.announceEncPub({ publickey: ana.publickey, encPub: ana.encPub, sign: ana.sign })
-  await cBeto.announceEncPub({ publickey: beto.publickey, encPub: beto.encPub, sign: beto.sign })
+  await cAlice.announceEncPub({ publickey: alice.publickey, encPub: alice.encPub, sign: alice.sign })
+  await cBob.announceEncPub({ publickey: bob.publickey, encPub: bob.encPub, sign: bob.sign })
 
   // Ana le escribe a beto sin haber hablado nunca con él.
-  await cAna.sendSealed([beto.publickey], { texto: 'nos vemos a las 8' })
-  const cable = conContenido(cAna).at(-1)
+  await cAlice.sendSealed([bob.publickey], { text: 'nos vemos a las 8' })
+  const cable = withContent(cAlice).at(-1)
   assert.ok(!JSON.stringify(cable).includes('nos vemos'), 'el proxio lo habría leído')
   assert.ok(isSealed(JSON.parse(cable.message)))
 
   // Y llega: se lo metemos a beto por donde se lo metería el proxio.
-  const recibidos = []
-  cBeto.on('message', (from, payload, meta) => recibidos.push({ payload, meta }))
-  cBeto._handleFrame(JSON.stringify({
-    type: 'message', from: 'TOKEN-ANA', from_publickey: ana.publickey, message: cable.message
+  const received = []
+  cBob.on('message', (from, payload, meta) => received.push({ payload, meta }))
+  cBob._handleFrame(JSON.stringify({
+    type: 'message', from: 'TOKEN-ANA', from_publickey: alice.publickey, message: cable.message
   }))
   await new Promise((r) => setTimeout(r, 20))
-  assert.deepEqual(recibidos[0].payload, { texto: 'nos vemos a las 8' })
-  assert.equal(recibidos[0].meta.sealed, true)
+  assert.deepEqual(received[0].payload, { text: 'nos vemos a las 8' })
+  assert.equal(received[0].meta.sealed, true)
 
   // Y contesta igual, en el otro sentido.
-  await cBeto.sendSealed([ana.publickey], { texto: 'ahí estaré' })
-  const vuelta = conContenido(cBeto).at(-1)
-  assert.ok(!JSON.stringify(vuelta).includes('ahí estaré'))
-  assert.deepEqual(await open(JSON.parse(vuelta.message), ana.encPrivateKey), { texto: 'ahí estaré' })
+  await cBob.sendSealed([alice.publickey], { text: 'ahí estaré' })
+  const roundTrip = withContent(cBob).at(-1)
+  assert.ok(!JSON.stringify(roundTrip).includes('ahí estaré'))
+  assert.deepEqual(await open(JSON.parse(roundTrip.message), alice.encPrivateKey), { text: 'ahí estaré' })
 })

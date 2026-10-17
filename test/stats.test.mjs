@@ -6,7 +6,7 @@
  * registro de la página mientras está vivo — el topbar lo encuentra ahí sin que la app lo
  * cablee.
  */
-import { FakeWebSocket } from './_entorno.mjs'
+import { FakeWebSocket } from './_env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WebSocketProxyClient, listTransports, routeOf, logStats } from '../src/index.js'
@@ -14,13 +14,13 @@ import { utf8Length } from '../src/stats.js'
 
 const tick = () => new Promise((r) => setImmediate(r))
 
-async function conectado () {
+async function connectedClient () {
   const c = new WebSocketProxyClient({ url: 'ws://x', enableWebRTC: false, autoReconnect: false, enableHeartbeat: false })
   const p = c.connect()
   await tick()
-  FakeWebSocket.ultimo.responde({ type: 'connected', token: 'yo', node: 'n1' })
+  FakeWebSocket.last.reply({ type: 'connected', token: 'yo', node: 'n1' })
   await p
-  return { c, ws: FakeWebSocket.ultimo }
+  return { c, ws: FakeWebSocket.last }
 }
 
 test('utf8Length cuenta bytes, no caracteres', () => {
@@ -32,16 +32,16 @@ test('utf8Length cuenta bytes, no caracteres', () => {
 })
 
 test('lo que sale y entra por el proxio se cuenta por conexión, como proxio', async () => {
-  const { c, ws } = await conectado()
-  c.send('peer-1', { hola: 'ñ' })
-  ws.responde({ type: 'message', from: 'peer-1', message: JSON.stringify({ r: 1 }) })
+  const { c, ws } = await connectedClient()
+  c.send('peer-1', { hello: 'ñ' })
+  ws.reply({ type: 'message', from: 'peer-1', message: JSON.stringify({ r: 1 }) })
   const s = await c.stats()
   assert.equal(s.connected, true)
   assert.equal(s.node, 'n1')
   const p = s.peers.find((x) => x.token === 'peer-1')
   assert.ok(p)
   assert.equal(p.route, 'proxy')
-  assert.equal(p.bytesOut.proxy, utf8Length(JSON.stringify({ hola: 'ñ' })))
+  assert.equal(p.bytesOut.proxy, utf8Length(JSON.stringify({ hello: 'ñ' })))
   assert.equal(p.bytesIn.proxy, utf8Length(JSON.stringify({ r: 1 })))
   assert.equal(p.msgsOut, 1)
   assert.equal(p.msgsIn, 1)
@@ -51,7 +51,7 @@ test('lo que sale y entra por el proxio se cuenta por conexión, como proxio', a
 })
 
 test('por pubkey, la conexión se apunta por la llave', async () => {
-  const { c } = await conectado()
+  const { c } = await connectedClient()
   c.sendByPubkey(['PK1'], { x: 1 })
   const s = await c.stats()
   const p = s.peers.find((x) => x.pubkey === 'PK1')
@@ -62,14 +62,14 @@ test('por pubkey, la conexión se apunta por la llave', async () => {
 })
 
 test('el cliente está en el registro mientras vive, y sale al cerrarlo', async () => {
-  const { c } = await conectado()
+  const { c } = await connectedClient()
   assert.ok(listTransports().includes(c))
   c.close()
   assert.ok(!listTransports().includes(c))
 })
 
 test('el canal directo cuenta como WebRTC con su ruta (directo o TURN)', async () => {
-  const { c } = await conectado()
+  const { c } = await connectedClient()
   c._tokenPubkeys.set('peer-2', 'PK2')
   // Lo que haría WebRTCManager al mandar y recibir por un canal abierto por TURN.
   c._rtc = { describe: async () => new Map([['peer-2', 'turn']]) }
@@ -87,7 +87,7 @@ test('el canal directo cuenta como WebRTC con su ruta (directo o TURN)', async (
 })
 
 /** Un informe de getStats como el de un navegador (un Map con los objetos por id). */
-function informe (local, remote) {
+function report (local, remote) {
   return new Map([
     ['T', { id: 'T', type: 'transport', selectedCandidatePairId: 'P' }],
     ['P', { id: 'P', type: 'candidate-pair', localCandidateId: 'L', remoteCandidateId: 'R', state: 'succeeded', nominated: true }],
@@ -97,15 +97,15 @@ function informe (local, remote) {
 }
 
 test('routeOf: relay en cualquier punta es TURN; si no, directo; sin datos, no se adivina', async () => {
-  assert.equal(await routeOf({ getStats: async () => informe('host', 'srflx') }), 'direct')
-  assert.equal(await routeOf({ getStats: async () => informe('relay', 'host') }), 'turn')
-  assert.equal(await routeOf({ getStats: async () => informe('srflx', 'relay') }), 'turn')
+  assert.equal(await routeOf({ getStats: async () => report('host', 'srflx') }), 'direct')
+  assert.equal(await routeOf({ getStats: async () => report('relay', 'host') }), 'turn')
+  assert.equal(await routeOf({ getStats: async () => report('srflx', 'relay') }), 'turn')
   assert.equal(await routeOf({ getStats: async () => new Map() }), null)
   assert.equal(await routeOf({}), null)
 })
 
 test('logStats: escribe el camino real, calla si nada cambió y no deja la pubkey en el log', async () => {
-  const { c } = await conectado()
+  const { c } = await connectedClient()
   c._tokenPubkeys.set('peer-9', 'PK-SECRETA')
   c._rtc = { describe: async () => new Map([['peer-9', 'direct']]), closeAll () {} }
   c._traffic.peer('out', 'direct', { token: 'peer-9' }, 40)
@@ -128,7 +128,7 @@ test('logStats: escribe el camino real, calla si nada cambió y no deja la pubke
 })
 
 test('logStats: a quien solo se le mandó un ping no se le cuenta como conexión', async () => {
-  const { c } = await conectado()
+  const { c } = await connectedClient()
   c._traffic.peer('out', 'proxy', { pubkey: 'PK-APAGADO-1' }, 37)
   c._traffic.peer('out', 'proxy', { pubkey: 'PK-APAGADO-2' }, 37)
   c._traffic.peer('out', 'proxy', { token: 'peer-vivo' }, 37)

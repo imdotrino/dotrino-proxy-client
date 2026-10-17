@@ -12,26 +12,26 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { FakeWebSocket } from './_entorno.mjs'
+import { FakeWebSocket } from './_env.mjs'
 
-const FUENTE = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
+const SOURCE = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
 
 test('todo expectedType de _request tiene su case en el despacho', () => {
   // Los tipos que alguien ESPERA: `_request(..., 'algo')`.
-  const esperados = new Set(
-    [...FUENTE.matchAll(/_request\([^)]*?,\s*'([^']+)'/gs)].map((m) => m[1])
+  const expected = new Set(
+    [...SOURCE.matchAll(/_request\([^)]*?,\s*'([^']+)'/gs)].map((m) => m[1])
   )
   // Los tipos que el switch SABE resolver.
-  const cuerpo = FUENTE.slice(FUENTE.indexOf('_handleFrame'))
-  const despachados = new Set(
-    [...cuerpo.matchAll(/case '([^']+)':/g)].map((m) => m[1])
+  const body = SOURCE.slice(SOURCE.indexOf('_handleFrame'))
+  const dispatched = new Set(
+    [...body.matchAll(/case '([^']+)':/g)].map((m) => m[1])
   )
-  assert.ok(esperados.size >= 10, `se esperaban muchos tipos, se leyeron ${esperados.size}`)
-  const huerfanos = [...esperados].filter((t) => !despachados.has(t))
+  assert.ok(expected.size >= 10, `se esperaban muchos tipos, se leyeron ${expected.size}`)
+  const orphans = [...expected].filter((t) => !dispatched.has(t))
   assert.deepEqual(
-    huerfanos, [],
+    orphans, [],
     `estas peticiones esperan una respuesta que el switch de _handleFrame no despacha, ` +
-    `asi que su promesa nunca resuelve y muere de timeout a los 10 s: ${huerfanos.join(', ')}`
+    `asi que su promesa nunca resuelve y muere de timeout a los 10 s: ${orphans.join(', ')}`
   )
 })
 
@@ -48,29 +48,29 @@ const tick = () => new Promise((r) => setTimeout(r, 0))
  * de criptografia de verdad, asi que el frame puede tardar. Un `await tick()` a
  * secas hacia que el test fallara solo la primera vez de cada proceso.
  */
-async function esperaFrame (ws, tipo, ms = 3000) {
-  const limite = Date.now() + ms
-  while (Date.now() < limite) {
-    const f = [...ws.enviados].reverse().find((x) => x.type === tipo)
+async function waitFrame (ws, kind, ms = 3000) {
+  const limit = Date.now() + ms
+  while (Date.now() < limit) {
+    const f = [...ws.sent].reverse().find((x) => x.type === kind)
     if (f) return f
     await tick()
   }
-  throw new Error(`el cliente nunca mando un frame '${tipo}' (mando: ${ws.enviados.map((x) => x.type).join(', ') || 'nada'})`)
+  throw new Error(`the client never sent a '${kind}' frame (it sent: ${ws.sent.map((x) => x.type).join(', ') || 'nothing'})`)
 }
 
 /** Espera a que se hayan mandado `n` frames de un tipo, y los devuelve todos. */
-async function esperaFrames (ws, tipo, n, ms = 3000) {
-  const limite = Date.now() + ms
-  while (Date.now() < limite) {
-    const fs = ws.enviados.filter((x) => x.type === tipo)
+async function waitFrames (ws, kind, n, ms = 3000) {
+  const limit = Date.now() + ms
+  while (Date.now() < limit) {
+    const fs = ws.sent.filter((x) => x.type === kind)
     if (fs.length >= n) return fs
     await tick()
   }
-  throw new Error(`se esperaban ${n} frames '${tipo}' y se mandaron ${ws.enviados.filter((x) => x.type === tipo).length}`)
+  throw new Error(`expected ${n} '${kind}' frames and ${ws.sent.filter((x) => x.type === kind).length} were sent`)
 }
 
 /** Cliente conectado a un socket falso, sin WebRTC ni heartbeat de por medio. */
-async function conectado () {
+async function connected () {
   const c = new WebSocketProxyClient({
     url: 'wss://falso',
     enableWebRTC: false,
@@ -79,129 +79,129 @@ async function conectado () {
   })
   const p = c.connect()
   await new Promise((r) => setTimeout(r, 0))
-  FakeWebSocket.ultimo.responde({ type: 'connected', token: 'TOK1' })
+  FakeWebSocket.last.reply({ type: 'connected', token: 'TOK1' })
   await p
-  return { c, ws: FakeWebSocket.ultimo }
+  return { c, ws: FakeWebSocket.last }
 }
 
 test('connect resuelve con el token que da el proxy', async () => {
-  const { c } = await conectado()
+  const { c } = await connected()
   assert.equal(c.token, 'TOK1')
   assert.equal(c.isConnected, true)
   c.close()
 })
 
 test('cada peticion lleva su id y la respuesta resuelve por ese id', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   const p = c.publish('sala-1', { nickname: 'ana' })
-  const enviado = await esperaFrame(ws, 'publish')
-  assert.equal(enviado.type, 'publish')
-  assert.ok(enviado.id, 'sin id, la respuesta no se puede emparejar')
-  ws.responde({ type: 'published', id: enviado.id })
+  const sentMsg = await waitFrame(ws, 'publish')
+  assert.equal(sentMsg.type, 'publish')
+  assert.ok(sentMsg.id, 'sin id, la respuesta no se puede emparejar')
+  ws.reply({ type: 'published', id: sentMsg.id })
   await p
   c.close()
 })
 
 test('una respuesta con OTRO id no resuelve la peticion', async () => {
-  const { c, ws } = await conectado()
-  let resuelta = false
-  c.publish('sala-1').then(() => { resuelta = true }, () => {})
-  await esperaFrame(ws, 'publish')
-  ws.responde({ type: 'published', id: 'req_9999' })
+  const { c, ws } = await connected()
+  let resolved = false
+  c.publish('sala-1').then(() => { resolved = true }, () => {})
+  await waitFrame(ws, 'publish')
+  ws.reply({ type: 'published', id: 'req_9999' })
   await new Promise((r) => setTimeout(r, 10))
-  assert.equal(resuelta, false, 'emparejar por tipo y no por id mezclaria peticiones concurrentes')
+  assert.equal(resolved, false, 'emparejar por tipo y no por id mezclaria peticiones concurrentes')
   c.close()
 })
 
 test('dos peticiones a la vez resuelven cada una la suya', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   const a = c.publish('sala-a')
   const b = c.publish('sala-b')
   // Se espera a que estén LOS DOS frames, no un `tick` a ver si llega el segundo: en una
   // máquina más lenta (CI) no había llegado, se leía el primero dos veces y el test caía
   // diciendo que los ids eran iguales — un fallo del test, no del cliente.
-  const frames = await esperaFrames(ws, 'publish', 2)
+  const frames = await waitFrames(ws, 'publish', 2)
   // Cada frame se busca por SU canal (`channel.data.name`), no por la posición: lanzadas a
   // la vez, el orden en que salen no tiene por qué ser el orden en que se pidieron.
   const idA = frames.find((f) => f.channel?.data?.name === 'sala-a').id
   const idB = frames.find((f) => f.channel?.data?.name === 'sala-b').id
   assert.notEqual(idA, idB)
-  ws.responde({ type: 'published', id: idB, channel: 'sala-b' })
-  ws.responde({ type: 'published', id: idA, channel: 'sala-a' })
+  ws.reply({ type: 'published', id: idB, channel: 'sala-b' })
+  ws.reply({ type: 'published', id: idA, channel: 'sala-a' })
   assert.equal((await a).channel, 'sala-a')
   assert.equal((await b).channel, 'sala-b')
   c.close()
 })
 
 test('pair-code y pair-redeem resuelven (el fallo de la 0.9.1)', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   const p1 = c.requestPairingCode({ ttlMs: 60000 })
-  assert.equal(ws.ultimoEnviado.type, 'pair-code')
-  assert.equal(ws.ultimoEnviado.ttlMs, 60000)
-  ws.responde({ type: 'pair-code', id: ws.ultimoEnviado.id, code: 'C5AB12', expiresAt: 1, node: 'C5' })
+  assert.equal(ws.lastSent.type, 'pair-code')
+  assert.equal(ws.lastSent.ttlMs, 60000)
+  ws.reply({ type: 'pair-code', id: ws.lastSent.id, code: 'C5AB12', expiresAt: 1, node: 'C5' })
   assert.equal((await p1).code, 'C5AB12')
 
   const p2 = c.redeemPairingCode('c5ab12')
-  assert.equal(ws.ultimoEnviado.type, 'pair-redeem')
-  ws.responde({ type: 'pair-redeem', id: ws.ultimoEnviado.id, ok: true, instance: 'X' })
+  assert.equal(ws.lastSent.type, 'pair-redeem')
+  ws.reply({ type: 'pair-redeem', id: ws.lastSent.id, ok: true, instance: 'X' })
   assert.equal((await p2).ok, true)
   c.close()
 })
 
 test('un frame de error rechaza la peticion, no la deja colgada', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   const p = c.publish('sala-1')
-  const enviado = await esperaFrame(ws, 'publish')
-  ws.responde({ type: 'error', id: enviado.id, error: 'no autorizado' })
+  const sentMsg = await waitFrame(ws, 'publish')
+  ws.reply({ type: 'error', id: sentMsg.id, error: 'no autorizado' })
   await assert.rejects(p, /no autorizado/)
   c.close()
 })
 
 test('identify exige el sobre firmado', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   assert.throws(() => c.identify({ data: { op: 'x' } }), /identify requires/)
   const p = c.identify({ data: { op: 'identify' }, signature: 'firma', cert: 'C', acta: 'A' })
-  const m = ws.ultimoEnviado
+  const m = ws.lastSent
   assert.equal(m.type, 'identify')
   assert.equal(m.cert, 'C')
   assert.equal(m.acta, 'A')
-  ws.responde({ type: 'identified', id: m.id, queued_delivered: 3 })
+  ws.reply({ type: 'identified', id: m.id, queued_delivered: 3 })
   assert.equal((await p).queued_delivered, 3)
   c.close()
 })
 
 test('sendByPubkey solo marca ephemeral cuando se pide', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   // Marcar de más manda a la cola offline de 24 h lo que caduca (una jugada,
   // una señalización WebRTC); marcar de menos descarta un chat que sí esperaba.
-  c.sendByPubkey('PUB1', { hola: 1 })
-  assert.equal(ws.ultimoEnviado.ephemeral, undefined)
-  assert.deepEqual(ws.ultimoEnviado.to_publickey, ['PUB1'], 'una sola pubkey se normaliza a lista')
+  c.sendByPubkey('PUB1', { hello: 1 })
+  assert.equal(ws.lastSent.ephemeral, undefined)
+  assert.deepEqual(ws.lastSent.to_publickey, ['PUB1'], 'una sola pubkey se normaliza a lista')
 
-  c.sendByPubkey(['PUB1', 'PUB2'], { jugada: 'e4' }, { ephemeral: true })
-  assert.equal(ws.ultimoEnviado.ephemeral, true)
-  assert.deepEqual(ws.ultimoEnviado.to_publickey, ['PUB1', 'PUB2'])
+  c.sendByPubkey(['PUB1', 'PUB2'], { move: 'e4' }, { ephemeral: true })
+  assert.equal(ws.lastSent.ephemeral, true)
+  assert.deepEqual(ws.lastSent.to_publickey, ['PUB1', 'PUB2'])
   c.close()
 })
 
 test('sendByPubkey solo marca quiet cuando se pide', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   // Sin la marca el proxio toca el timbre push, que es lo que quiere un chat. Con ella
   // se encola igual, pero no despierta al teléfono por un aviso que puede esperar.
-  c.sendByPubkey('PUB1', { hola: 1 })
-  assert.equal(ws.ultimoEnviado.quiet, undefined)
+  c.sendByPubkey('PUB1', { hello: 1 })
+  assert.equal(ws.lastSent.quiet, undefined)
   c.sendByPubkey('PUB1', { ev: 'vars' }, { quiet: true })
-  assert.equal(ws.ultimoEnviado.quiet, true)
-  assert.equal(ws.ultimoEnviado.ephemeral, undefined, 'callar no es descartar')
+  assert.equal(ws.lastSent.quiet, true)
+  assert.equal(ws.lastSent.ephemeral, undefined, 'callar no es descartar')
   c.close()
 })
 
 test('sendByPubkey serializa el payload a texto, y no re-serializa una cadena', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   c.sendByPubkey('PUB1', { a: 1 })
-  assert.equal(ws.ultimoEnviado.message, '{"a":1}')
+  assert.equal(ws.lastSent.message, '{"a":1}')
   c.sendByPubkey('PUB1', 'ya-es-texto')
-  assert.equal(ws.ultimoEnviado.message, 'ya-es-texto')
+  assert.equal(ws.lastSent.message, 'ya-es-texto')
   c.close()
 })
 
@@ -211,11 +211,11 @@ test('sin conexion, una peticion rechaza en vez de quedarse esperando', async ()
 })
 
 test('list devuelve los tokens, y una lista vacia si el proxy no manda ninguno', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   const p = c.list('salas')
-  const enviado = await esperaFrame(ws, 'list')
-  assert.equal(enviado.channel.data.name, 'salas', 'el canal va firmado, no en claro')
-  ws.responde({ type: 'channel_list', id: enviado.id, tokens: ['T1', 'T2'] })
+  const sentMsg = await waitFrame(ws, 'list')
+  assert.equal(sentMsg.channel.data.name, 'salas', 'el canal va firmado, no en claro')
+  ws.reply({ type: 'channel_list', id: sentMsg.id, tokens: ['T1', 'T2'] })
   assert.deepEqual(await p, ['T1', 'T2'])
 
   // Un canal sin nadie debe dar [], no undefined: quien llama hace .map/.length
@@ -225,28 +225,28 @@ test('list devuelve los tokens, y una lista vacia si el proxy no manda ninguno',
   // tarda mas de un turno. Con el tick, en una maquina cargada —CI— el segundo `list`
   // aun no habia salido, se contestaba al id del PRIMERO y la peticion moria de timeout
   // a los 10 s. El test no medía nada de eso: medía la velocidad del runner.
-  const listados = await esperaFrames(ws, 'list', 2)
-  ws.responde({ type: 'channel_list', id: listados.at(-1).id })
+  const listed = await waitFrames(ws, 'list', 2)
+  ws.reply({ type: 'channel_list', id: listed.at(-1).id })
   assert.deepEqual(await p2, [])
   c.close()
 })
 
 test('los handlers de on() no se pisan entre si ni rompen el cliente', async () => {
-  const { c, ws } = await conectado()
-  const vistos = []
-  c.on('message', () => { throw new Error('un handler de app que revienta') })
-  c.on('message', (from, msg) => vistos.push([from, msg]))
-  ws.responde({ type: 'message', from: 'T9', message: JSON.stringify({ hola: 1 }) })
+  const { c, ws } = await connected()
+  const seen = []
+  c.on('message', () => { throw new Error('an app handler that blows up') })
+  c.on('message', (from, msg) => seen.push([from, msg]))
+  ws.reply({ type: 'message', from: 'T9', message: JSON.stringify({ hello: 1 }) })
   await tick()
-  assert.equal(vistos.length, 1, 'que un handler lance no puede dejar sin evento a los demas')
-  assert.equal(vistos[0][0], 'T9')
+  assert.equal(seen.length, 1, 'que un handler lance no puede dejar sin evento a los demas')
+  assert.equal(seen[0][0], 'T9')
   c.close()
 })
 
 test('close corta en seco lo que estaba en vuelo (no lo deja 10 s colgado)', async () => {
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   const p = c.publish('sala-1')
-  await esperaFrame(ws, 'publish')
+  await waitFrame(ws, 'publish')
   c.close()
   // Sin esto, quien esperaba se comia los 10 s completos del timeout para
   // enterarse de algo que ya se sabia al cerrar; y en Node el temporizador
@@ -259,13 +259,13 @@ test('close corta en seco lo que estaba en vuelo (no lo deja 10 s colgado)', asy
 test('los errores llevan `code`, que es por donde se comprueban', async () => {
   // Emparejar por la frase cruza procesos y se rompe en silencio al traducirla
   // o al reescribirla. El contrato es el `code`.
-  const suelto = new WebSocketProxyClient({ url: 'wss://falso', enableWebRTC: false, enableHeartbeat: false, autoReconnect: false })
-  const e1 = await suelto.publish('x').then(() => null, (err) => err)
+  const loose = new WebSocketProxyClient({ url: 'wss://falso', enableWebRTC: false, enableHeartbeat: false, autoReconnect: false })
+  const e1 = await loose.publish('x').then(() => null, (err) => err)
   assert.equal(e1.code, 'NOT_CONNECTED')
 
-  const { c, ws } = await conectado()
+  const { c, ws } = await connected()
   const p = c.publish('sala-lenta')
-  await esperaFrame(ws, 'publish')
+  await waitFrame(ws, 'publish')
   c.close()
   assert.equal((await p.then(() => null, (err) => err)).code, 'CONNECTION_CLOSED')
 })

@@ -19,60 +19,60 @@ import assert from 'node:assert/strict'
 import { WebSocketProxyClient } from '../src/client.js'
 
 /** Un cliente con el transporte y el WebRTC falsos: se mira a quién se le manda qué. */
-function cliente () {
+function client () {
   const c = new WebSocketProxyClient({ url: 'ws://x', enableWebRTC: true, autoReconnect: false })
-  const porProxio = []
-  const intentos = []
-  const abiertos = new Set()
-  c._sendRaw = (env) => porProxio.push(env)
+  const viaProxy = []
+  const attempts = []
+  const opened = new Set()
+  c._sendRaw = (env) => viaProxy.push(env)
   c._rtc = {
-    trySend: (t) => abiertos.has(t),
-    isOpen: (t) => abiertos.has(t),
-    connect: async (t) => { intentos.push(t); abiertos.add(t) },
+    trySend: (t) => opened.has(t),
+    isOpen: (t) => opened.has(t),
+    connect: async (t) => { attempts.push(t); opened.add(t) },
     closeAll () {}
   }
-  return { c, porProxio, intentos, abiertos }
+  return { c, viaProxy, attempts, opened }
 }
 
 test('el primer mensaje sale por el proxio y NO espera al canal directo', async () => {
-  const { c, porProxio, intentos } = cliente()
-  c.send('peer-1', { hola: 1 })
+  const { c, viaProxy, attempts } = client()
+  c.send('peer-1', { hello: 1 })
   // Ya salió, sin haber esperado nada.
-  assert.equal(porProxio.length, 1)
-  assert.deepEqual(porProxio[0].to, ['peer-1'])
+  assert.equal(viaProxy.length, 1)
+  assert.deepEqual(viaProxy[0].to, ['peer-1'])
   await new Promise((r) => setImmediate(r))
-  assert.deepEqual(intentos, ['peer-1'], 'y de paso se pidió el canal directo, por detrás')
+  assert.deepEqual(attempts, ['peer-1'], 'y de paso se pidió el canal directo, por detrás')
 })
 
 test('del segundo en adelante va directo, sin tocar el proxio', async () => {
-  const { c, porProxio, intentos } = cliente()
+  const { c, viaProxy, attempts } = client()
   c.send('peer-1', { n: 1 })
   await new Promise((r) => setImmediate(r))
   c.send('peer-1', { n: 2 })
-  assert.equal(porProxio.length, 1, 'el segundo ya no pasó por el proxio')
-  assert.equal(intentos.length, 1, 'y no se volvió a negociar')
+  assert.equal(viaProxy.length, 1, 'el segundo ya no pasó por el proxio')
+  assert.equal(attempts.length, 1, 'y no se volvió a negociar')
 })
 
 test('si no se puede ir directo, se intenta UNA vez y se sigue por el proxio', async () => {
-  const { c, porProxio, intentos } = cliente()
-  c._rtc.connect = async (t) => { intentos.push(t); throw new Error('dos NAT que no se dejan') }
+  const { c, viaProxy, attempts } = client()
+  c._rtc.connect = async (t) => { attempts.push(t); throw new Error('two NATs that will not let it through') }
   for (let i = 0; i < 5; i++) { c.send('peer-1', { n: i }); await new Promise((r) => setImmediate(r)) }
-  assert.equal(porProxio.length, 5, 'los cinco llegaron')
-  assert.equal(intentos.length, 1, 'y solo se intentó negociar una vez')
+  assert.equal(viaProxy.length, 5, 'los cinco llegaron')
+  assert.equal(attempts.length, 1, 'y solo se intentó negociar una vez')
 })
 
 test('si el canal se cae, se vuelve a intentar: el intento único no es una condena', async () => {
-  const { c, intentos, abiertos } = cliente()
+  const { c, attempts, opened } = client()
   c.send('peer-1', { n: 1 })
   await new Promise((r) => setImmediate(r))
-  assert.equal(intentos.length, 1)
+  assert.equal(attempts.length, 1)
 
-  abiertos.delete('peer-1')
+  opened.delete('peer-1')
   c._emit = () => {}                     // el cliente real ya lo tiene; aquí solo importa el efecto
   c._rtcTried.delete('peer-1')           // lo que hace el manejador de `webrtc_close`
   c.send('peer-1', { n: 2 })
   await new Promise((r) => setImmediate(r))
-  assert.equal(intentos.length, 2, 'una desconexión no puede dejarlo en el proxio para siempre')
+  assert.equal(attempts.length, 2, 'una desconexión no puede dejarlo en el proxio para siempre')
 })
 
 /**
@@ -104,8 +104,8 @@ test('sin política se acepta a cualquiera: es lo de antes, y no se rompe a quie
 })
 
 test('con política, un desconocido NO hace arrancar la negociación', () => {
-  const conocidos = new Set(['un-miembro'])
-  const m = manager((from) => conocidos.has(from))
+  const known = new Set(['un-miembro'])
+  const m = manager((from) => known.has(from))
   assert.equal(m.handleIncoming('desconocido', { t: RTC_TAG, kind: 'offer' }), false,
     'nadie que no esté en el acta puede hacerte parsear su DTLS')
   assert.equal(m.handleIncoming('un-miembro', { t: RTC_TAG, kind: 'offer' }), true)

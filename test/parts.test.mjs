@@ -1,4 +1,4 @@
-import './_entorno.mjs'
+import './_env.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -13,104 +13,104 @@ setSealingPrimitives(await import('@dotrino/identity/content'))
 // en el proxio es como mucho 8 MB de archivo (regla del dueño, 2026-10-15).
 
 async function par () {
-  const llaveB = await makeEncKeypair()
+  const keyB = await makeEncKeypair()
   const a = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, requireSealed: true })
-  a.enviados = []
-  a._sendRaw = (frame) => { a.enviados.push(frame) }
+  a.sent = []
+  a._sendRaw = (frame) => { a.sent.push(frame) }
   a.ws = { readyState: 1 }
   a.token = 'A'
   a.myPublickey = 'PK-A'
-  const b = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, requireSealed: true, myEncPrivateKey: llaveB.privateKey })
+  const b = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, requireSealed: true, myEncPrivateKey: keyB.privateKey })
   b.ws = { readyState: 1 }
   b.token = 'B'
-  const recibidos = []
+  const received = []
   const errores = []
-  b.on('message', (from, payload, meta) => recibidos.push({ from, payload, meta }))
+  b.on('message', (from, payload, meta) => received.push({ from, payload, meta }))
   b.on('error', (e) => errores.push(e))
   // Lo que A mandó, tal como el proxio se lo entrega a B.
   // Abrir cada parte es asíncrono: se espera a que llegue algo (o a que se rinda), no un
   // tiempo fijo, que en CI se queda corto.
-  const entregar = async (frames) => {
-    const antes = recibidos.length + errores.length
+  const deliver = async (frames) => {
+    const antes = received.length + errores.length
     for (const f of frames) b._handleFrame(JSON.stringify({ type: 'message', from: 'A', from_publickey: 'PK-A', message: f.message }))
-    const fin = Date.now() + 15000
-    while (recibidos.length + errores.length === antes && Date.now() < fin) await new Promise((r) => setTimeout(r, 20))
+    const end = Date.now() + 15000
+    while (received.length + errores.length === antes && Date.now() < end) await new Promise((r) => setTimeout(r, 20))
     await new Promise((r) => setTimeout(r, 50)) // por si llegara algo más (no debe)
   }
-  return { a, b, llaveB, recibidos, errores, entregar }
+  return { a, b, keyB, received, errores, deliver }
 }
 
-const grande = (chars) => ({ type: 'DM', image: { mime: 'image/jpeg', data: 'x'.repeat(chars) } })
+const big = (chars) => ({ type: 'DM', image: { mime: 'image/jpeg', data: 'x'.repeat(chars) } })
 
 test('un mensaje pequeño sale como siempre: una trama, sin partes', async () => {
-  const { a, llaveB, recibidos, entregar } = await par()
-  await a.sendSealedTo('B', { type: 'DM', text: 'hola' }, { peerPubkey: 'PK-B', peerEncPub: llaveB.encPub })
-  assert.equal(a.enviados.length, 1)
-  await entregar(a.enviados)
-  assert.equal(recibidos.length, 1)
-  assert.equal(recibidos[0].payload.text, 'hola')
-  assert.equal(recibidos[0].meta.parts, undefined)
+  const { a, keyB, received, deliver } = await par()
+  await a.sendSealedTo('B', { type: 'DM', text: 'hola' }, { peerPubkey: 'PK-B', peerEncPub: keyB.encPub })
+  assert.equal(a.sent.length, 1)
+  await deliver(a.sent)
+  assert.equal(received.length, 1)
+  assert.equal(received[0].payload.text, 'hola')
+  assert.equal(received[0].meta.parts, undefined)
 })
 
 test('por token, uno grande sale en partes selladas y llega entero, una sola vez', async () => {
-  const { a, llaveB, recibidos, errores, entregar } = await par()
-  const msg = grande(QUEUE_MAX_CHARS + 100) // más de lo que podría esperar en el proxio
-  await a.sendSealedTo('B', msg, { peerPubkey: 'PK-B', peerEncPub: llaveB.encPub })
-  assert.ok(a.enviados.length > 1, 'salió en varias tramas')
-  for (const f of a.enviados) {
+  const { a, keyB, received, errores, deliver } = await par()
+  const msg = big(QUEUE_MAX_CHARS + 100) // más de lo que podría esperar en el proxio
+  await a.sendSealedTo('B', msg, { peerPubkey: 'PK-B', peerEncPub: keyB.encPub })
+  assert.ok(a.sent.length > 1, 'salió en varias tramas')
+  for (const f of a.sent) {
     assert.deepEqual(f.to, ['B'])
     assert.ok(!f.message.includes(PART_TAG), 'el proxio no ve que es una parte: va sellada')
     assert.ok(f.message.length < 1024 * 1024, 'cada parte cabe en la trama del proxio')
   }
   // Desordenadas: la cola y el canal directo pueden entregar en otro orden.
-  await entregar([...a.enviados].reverse())
+  await deliver([...a.sent].reverse())
   assert.deepEqual(errores, [])
-  assert.equal(recibidos.length, 1)
-  assert.equal(recibidos[0].payload.image.data, msg.image.data)
-  assert.equal(recibidos[0].meta.parts, a.enviados.length)
+  assert.equal(received.length, 1)
+  assert.equal(received[0].payload.image.data, msg.image.data)
+  assert.equal(received[0].meta.parts, a.sent.length)
 })
 
 test('por pubkey (puede quedarse esperando) se parte hasta el tope y no pasa de él', async () => {
-  const { a, llaveB, recibidos, entregar } = await par()
-  const msg = grande(PROXY_PART_CHARS * 2)
-  await a.sendSealed(['PK-B'], msg, { peerEncPub: llaveB.encPub })
-  assert.equal(a.enviados.length, 3)
-  for (const f of a.enviados) assert.deepEqual(f.to_publickey, ['PK-B'])
-  await entregar(a.enviados)
-  assert.equal(recibidos[0].payload.image.data, msg.image.data)
+  const { a, keyB, received, deliver } = await par()
+  const msg = big(PROXY_PART_CHARS * 2)
+  await a.sendSealed(['PK-B'], msg, { peerEncPub: keyB.encPub })
+  assert.equal(a.sent.length, 3)
+  for (const f of a.sent) assert.deepEqual(f.to_publickey, ['PK-B'])
+  await deliver(a.sent)
+  assert.equal(received[0].payload.image.data, msg.image.data)
 
-  a.enviados = []
+  a.sent = []
   await assert.rejects(
-    a.sendSealed(['PK-B'], grande(QUEUE_MAX_CHARS + 1), { peerEncPub: llaveB.encPub }),
+    a.sendSealed(['PK-B'], big(QUEUE_MAX_CHARS + 1), { peerEncPub: keyB.encPub }),
     (e) => e.code === 'too-big-for-queue')
-  assert.equal(a.enviados.length, 0, 'no se deja nada a medias en el proxio')
+  assert.equal(a.sent.length, 0, 'no se deja nada a medias en el proxio')
 })
 
 test('si el token muere a mitad de uno que no cabe en la cola, no se deja en el proxio', async () => {
-  const { a, llaveB } = await par()
+  const { a, keyB } = await par()
   const errores = []
   a.on('error', (e) => errores.push(e))
-  await a.sendSealedTo('B', grande(QUEUE_MAX_CHARS + 100), { peerPubkey: 'PK-B', peerEncPub: llaveB.encPub })
-  const n = a.enviados.length
-  a._handleFrame(JSON.stringify({ type: 'message_sent', id: a.enviados[0].id, failed: ['B'] }))
-  assert.equal(a.enviados.length, n, 'nada salió por pubkey')
+  await a.sendSealedTo('B', big(QUEUE_MAX_CHARS + 100), { peerPubkey: 'PK-B', peerEncPub: keyB.encPub })
+  const n = a.sent.length
+  a._handleFrame(JSON.stringify({ type: 'message_sent', id: a.sent[0].id, failed: ['B'] }))
+  assert.equal(a.sent.length, n, 'nada salió por pubkey')
   assert.equal(errores[0]?.code, 'too-big-for-queue')
 })
 
 test('si el token muere a mitad de uno que sí cabe en la cola, esa parte va por pubkey', async () => {
-  const { a, llaveB } = await par()
-  await a.sendSealedTo('B', grande(PROXY_PART_CHARS * 2), { peerPubkey: 'PK-B', peerEncPub: llaveB.encPub })
-  const n = a.enviados.length
-  a._handleFrame(JSON.stringify({ type: 'message_sent', id: a.enviados[0].id, failed: ['B'] }))
-  assert.equal(a.enviados.length, n + 1)
-  assert.deepEqual(a.enviados[n].to_publickey, ['PK-B'])
+  const { a, keyB } = await par()
+  await a.sendSealedTo('B', big(PROXY_PART_CHARS * 2), { peerPubkey: 'PK-B', peerEncPub: keyB.encPub })
+  const n = a.sent.length
+  a._handleFrame(JSON.stringify({ type: 'message_sent', id: a.sent[0].id, failed: ['B'] }))
+  assert.equal(a.sent.length, n + 1)
+  assert.deepEqual(a.sent[n].to_publickey, ['PK-B'])
 })
 
 test('una parte con forma mala se dice, no desaparece', async () => {
-  const { b, llaveB, errores } = await par()
+  const { b, keyB, errores } = await par()
   const { seal } = await import('../src/sealing.js')
-  const mala = await seal({ [PART_TAG]: { id: 'x', i: 5, n: 2 }, d: 'zz' }, llaveB.encPub)
-  b._handleFrame(JSON.stringify({ type: 'message', from: 'A', message: JSON.stringify(mala) }))
+  const bad = await seal({ [PART_TAG]: { id: 'x', i: 5, n: 2 }, d: 'zz' }, keyB.encPub)
+  b._handleFrame(JSON.stringify({ type: 'message', from: 'A', message: JSON.stringify(bad) }))
   await new Promise((r) => setTimeout(r, 30))
   assert.equal(errores[0]?.code, 'bad-part')
 })
@@ -132,11 +132,11 @@ test('el canal directo espera a que su búfer baje antes de mandar la siguiente 
 
 test('por el proxio en vivo hay tope (25 MB de archivo): más que eso pide canal directo', async () => {
   const { RELAY_MAX_CHARS } = await import('../src/parts.js')
-  const { a, llaveB } = await par()
+  const { a, keyB } = await par()
   await assert.rejects(
-    a.sendSealedTo('B', grande(RELAY_MAX_CHARS + 1), { peerPubkey: 'PK-B', peerEncPub: llaveB.encPub }),
+    a.sendSealedTo('B', big(RELAY_MAX_CHARS + 1), { peerPubkey: 'PK-B', peerEncPub: keyB.encPub }),
     (e) => e.code === 'too-big-for-relay')
-  assert.equal(a.enviados.length, 0, 'no salió ninguna parte')
+  assert.equal(a.sent.length, 0, 'no salió ninguna parte')
 })
 
 test('routeTo dice por dónde va: proxio, canal directo o sin conexión', async () => {

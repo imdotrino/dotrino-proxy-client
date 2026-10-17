@@ -13,7 +13,7 @@
  *   3. un sobre envuelto PARA NADIE no se manda: se lanza con `code`;
  *   4. la marca del sobre (`app`) separa lo mío de lo ajeno.
  */
-import './_entorno.mjs'
+import './_env.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -22,71 +22,71 @@ import { identitySealing } from '../src/sealing.js'
 import { fakeVault } from './_fake-vault.mjs'
 
 /** Dialecto de la clase `Identity` (la que habla con el iframe). */
-function dialectoIframe (v) {
+function iframeDialect (v) {
   return {
     getEncryptionPubkey: async () => v.encPub,
     encrypt: (recipients, plaintext) => v.encrypt(recipients, plaintext),
-    decrypt: async (from, _token, sobre) => ({ plaintext: await v.open(from, sobre) })
+    decrypt: async (from, _token, envelope) => ({ plaintext: await v.open(from, envelope) })
   }
 }
 
 /** Dialecto del núcleo (dentro de un service worker). */
-function dialectoNucleo (v) {
+function coreDialect (v) {
   return {
     encryptionPubkey: async () => v.encPub,
     encrypt: (recipients, plaintext) => v.encrypt(recipients, plaintext),
-    decrypt: (from, sobre) => v.open(from, sobre)
+    decrypt: (from, envelope) => v.open(from, envelope)
   }
 }
 
 test('lo sellado no lleva el mensaje en claro y vuelve entero', async () => {
-  const ana = await fakeVault()
-  const beto = await fakeVault()
-  const selladoAna = identitySealing(dialectoIframe(ana), { app: 'prueba' })
-  const selladoBeto = identitySealing(dialectoIframe(beto), { app: 'prueba' })
+  const alice = await fakeVault()
+  const bob = await fakeVault()
+  const sealedAlice = identitySealing(iframeDialect(alice), { app: 'prueba' })
+  const sealedBob = identitySealing(iframeDialect(bob), { app: 'prueba' })
 
-  const mensaje = { type: 'ROOM_PREDICTION', env: 'BRASIL-CAMPEON' }
-  const sobre = await selladoAna.seal(mensaje, beto.encPub)
+  const msgText = { type: 'ROOM_PREDICTION', env: 'BRASIL-CAMPEON' }
+  const envelope = await sealedAlice.seal(msgText, bob.encPub)
 
-  assert.ok(!JSON.stringify(sobre).includes('BRASIL-CAMPEON'), 'el sobre no puede llevar el contenido')
-  assert.ok(!JSON.stringify(sobre).includes('ROOM_PREDICTION'), 'ni el tipo del mensaje')
-  assert.equal(selladoBeto.isSealed(sobre), true)
-  assert.deepEqual(await selladoBeto.open(sobre), mensaje)
+  assert.ok(!JSON.stringify(envelope).includes('BRASIL-CAMPEON'), 'el sobre no puede llevar el contenido')
+  assert.ok(!JSON.stringify(envelope).includes('ROOM_PREDICTION'), 'ni el tipo del mensaje')
+  assert.equal(sealedBob.isSealed(envelope), true)
+  assert.deepEqual(await sealedBob.open(envelope), msgText)
 })
 
 test('los dos dialectos se abren el uno al otro', async () => {
-  const ana = await fakeVault()
-  const beto = await fakeVault()
-  const desdeIframe = identitySealing(dialectoIframe(ana), { app: 'prueba' })
-  const desdeNucleo = identitySealing(dialectoNucleo(beto), { app: 'prueba' })
+  const alice = await fakeVault()
+  const bob = await fakeVault()
+  const fromIframe = identitySealing(iframeDialect(alice), { app: 'prueba' })
+  const fromCore = identitySealing(coreDialect(bob), { app: 'prueba' })
 
-  assert.deepEqual(await desdeNucleo.open(await desdeIframe.seal({ a: 1 }, beto.encPub)), { a: 1 })
-  assert.deepEqual(await desdeIframe.open(await desdeNucleo.seal({ b: 2 }, ana.encPub)), { b: 2 })
+  assert.deepEqual(await fromCore.open(await fromIframe.seal({ a: 1 }, bob.encPub)), { a: 1 })
+  assert.deepEqual(await fromIframe.open(await fromCore.seal({ b: 2 }, alice.encPub)), { b: 2 })
 })
 
 test('un sobre envuelto PARA NADIE no sale: se lanza con code', async () => {
-  const ana = await fakeVault()
-  const sellado = identitySealing(dialectoIframe(ana), { app: 'prueba' })
+  const alice = await fakeVault()
+  const sealed = identitySealing(iframeDialect(alice), { app: 'prueba' })
   // Una llave que la bóveda no puede importar: `encrypt` la salta y devuelve el llavero
   // vacío. Cifrado de verdad, y que no abre nadie.
   await assert.rejects(
-    () => sellado.seal({ a: 1 }, '{"kty":"EC","crv":"P-256","x":"no","y":"vale"}'),
+    () => sealed.seal({ a: 1 }, '{"kty":"EC","crv":"P-256","x":"no","y":"vale"}'),
     (e) => e.code === 'unsealed')
 })
 
 test('sin llave del otro lado no se sella', async () => {
-  const ana = await fakeVault()
-  const sellado = identitySealing(dialectoIframe(ana), { app: 'prueba' })
-  await assert.rejects(() => sellado.seal({ a: 1 }, null), (e) => e.code === 'unsealed')
+  const alice = await fakeVault()
+  const sealed = identitySealing(iframeDialect(alice), { app: 'prueba' })
+  await assert.rejects(() => sealed.seal({ a: 1 }, null), (e) => e.code === 'unsealed')
 })
 
 test('la marca del sobre separa lo mío de lo ajeno', async () => {
-  const ana = await fakeVault()
-  const beto = await fakeVault()
-  const mio = identitySealing(dialectoIframe(ana), { app: 'mundial' })
-  const ajeno = identitySealing(dialectoIframe(beto), { app: 'passmanager' })
-  const sobre = await ajeno.seal({ a: 1 }, ana.encPub)
-  assert.equal(mio.isSealed(sobre), false)
+  const alice = await fakeVault()
+  const bob = await fakeVault()
+  const mine = identitySealing(iframeDialect(alice), { app: 'mundial' })
+  const foreign = identitySealing(iframeDialect(bob), { app: 'passmanager' })
+  const envelope = await foreign.seal({ a: 1 }, alice.encPub)
+  assert.equal(mine.isSealed(envelope), false)
 })
 
 test('una identidad que no habla ninguno de los dos dialectos revienta con nombre', () => {
@@ -95,25 +95,25 @@ test('una identidad que no habla ninguno de los dos dialectos revienta con nombr
 })
 
 test('con la pubkey del destinatario, el sobre llega a TODOS sus aparatos (tarjeta)', async () => {
-  const ana = await fakeVault()
-  const recibidos = []
+  const alice = await fakeVault()
+  const received = []
   const id = {
-    getEncryptionPubkey: async () => ana.encPub,
-    encrypt: async (recipients, pt) => { recibidos.push(...recipients); return ana.encrypt(recipients, pt) },
+    getEncryptionPubkey: async () => alice.encPub,
+    encrypt: async (recipients, pt) => { received.push(...recipients); return alice.encrypt(recipients, pt) },
     decrypt: async () => ({ plaintext: '{}' })
   }
-  const beto = await fakeVault()
-  await identitySealing(id, { app: 'prueba' }).seal({ a: 1 }, beto.encPub, { publickey: 'PUB-BETO' })
+  const bob = await fakeVault()
+  await identitySealing(id, { app: 'prueba' }).seal({ a: 1 }, bob.encPub, { publickey: 'PUB-BETO' })
   // La bóveda expande por la tarjeta, y la tarjeta se busca por `publickey`: sin ella,
   // solo abría el aparato que anunció la llave.
-  assert.deepEqual(recibidos, [{ publickey: 'PUB-BETO', encryptionPubkey: beto.encPub }])
+  assert.deepEqual(received, [{ publickey: 'PUB-BETO', encryptionPubkey: bob.encPub }])
 })
 
 test('senderOf dice quién selló: la llave de cifrado de quien armó el sobre', async () => {
-  const ana = await fakeVault()
-  const beto = await fakeVault()
-  const sellado = identitySealing(dialectoIframe(ana), { app: 'prueba' })
-  const sobre = await sellado.seal({ a: 1 }, beto.encPub)
-  assert.equal(sellado.senderOf(sobre), ana.encPub)
-  assert.equal(sellado.senderOf({}), null)
+  const alice = await fakeVault()
+  const bob = await fakeVault()
+  const sealed = identitySealing(iframeDialect(alice), { app: 'prueba' })
+  const envelope = await sealed.seal({ a: 1 }, bob.encPub)
+  assert.equal(sealed.senderOf(envelope), alice.encPub)
+  assert.equal(sealed.senderOf({}), null)
 })

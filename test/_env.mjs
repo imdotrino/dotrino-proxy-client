@@ -10,14 +10,14 @@
  * Importar este módulo ANTES que nada de `src/`: signature.js cachea el par de
  * llaves en cuanto se usa.
  */
-const memoria = new Map()
+const memory = new Map()
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
   value: {
-    getItem: (k) => (memoria.has(k) ? memoria.get(k) : null),
-    setItem: (k, v) => memoria.set(k, String(v)),
-    removeItem: (k) => memoria.delete(k),
-    clear: () => memoria.clear()
+    getItem: (k) => (memory.has(k) ? memory.get(k) : null),
+    setItem: (k, v) => memory.set(k, String(v)),
+    removeItem: (k) => memory.delete(k),
+    clear: () => memory.clear()
   }
 })
 
@@ -25,26 +25,26 @@ Object.defineProperty(globalThis, 'localStorage', {
 export class FakeWebSocket {
   static OPEN = 1
   static CLOSED = 3
-  static ultimo = null
+  static last = null
   constructor (url) {
     this.url = url
     this.readyState = FakeWebSocket.OPEN
-    this.enviados = []
-    this._oyentes = new Map()
-    FakeWebSocket.ultimo = this
-    queueMicrotask(() => this._disparar('open', {}))
+    this.sent = []
+    this._listeners = new Map()
+    FakeWebSocket.last = this
+    queueMicrotask(() => this._fire('open', {}))
   }
   addEventListener (ev, fn) {
-    if (!this._oyentes.has(ev)) this._oyentes.set(ev, new Set())
-    this._oyentes.get(ev).add(fn)
+    if (!this._listeners.has(ev)) this._listeners.set(ev, new Set())
+    this._listeners.get(ev).add(fn)
   }
-  removeEventListener (ev, fn) { this._oyentes.get(ev)?.delete(fn) }
-  send (texto) { this.enviados.push(JSON.parse(texto)) }
-  close () { this.readyState = FakeWebSocket.CLOSED; this._disparar('close', { code: 1000 }) }
-  _disparar (ev, detalle) { for (const fn of this._oyentes.get(ev) || []) fn(detalle) }
+  removeEventListener (ev, fn) { this._listeners.get(ev)?.delete(fn) }
+  send (text) { this.sent.push(JSON.parse(text)) }
+  close () { this.readyState = FakeWebSocket.CLOSED; this._fire('close', { code: 1000 }) }
+  _fire (ev, detail) { for (const fn of this._listeners.get(ev) || []) fn(detail) }
   /** El "servidor" contesta. */
-  responde (frame) { this._disparar('message', { data: JSON.stringify(frame) }) }
+  reply (frame) { this._fire('message', { data: JSON.stringify(frame) }) }
   /** Lo último que mandó el cliente. */
-  get ultimoEnviado () { return this.enviados[this.enviados.length - 1] }
+  get lastSent () { return this.sent[this.sent.length - 1] }
 }
 Object.defineProperty(globalThis, 'WebSocket', { configurable: true, value: FakeWebSocket })
