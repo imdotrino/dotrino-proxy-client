@@ -529,6 +529,21 @@ El Service Worker, al recibir el timbre, hace `postMessage({ type: 'cc-push-ring
 
 > **Privacidad:** vos nunca manejás la push-subscription de un contacto — solo su pubkey. "Mandarle un push" no es una acción aparte: es `sendByPubkey(pubkeyDelAmigo, ...)`; si está offline, el proxy le toca el timbre solo.
 
+## Despertar a una bóveda que no vive conectada (0.37.0+)
+
+Una bóveda en una función (AWS Lambda) no puede quedarse conectada: solo existe mientras
+trabaja. Registra una URL y el proxio la llama cuando llega algo para su cuenta y no hay
+nadie suyo conectado; el mensaje espera en la cola de siempre y se entrega al identificarse.
+
+```js
+await client.registerWake({ publicKey: commPub, sign: commSign, url: 'https://…/wake?k=…', acta })
+```
+
+- Firma la **llave de comunicación** de la bóveda (no la maestra); el `acta` prueba que es
+  miembro de la cuenta, y el timbre se guarda para la cuenta (`profileId`).
+- Necesita `websocket-proxy` ≥ 1.7.0. La URL lleva su propio secreto: el proxio es el único
+  que la conoce además de la bóveda.
+
 ## Push programado / auto-recordatorios (0.6.0+)
 
 Además del timbre event-driven, puedes **programar un push a tu PROPIA pubkey** para una hora futura: el proxy lo dispara aunque la app esté cerrada (despierta el mismo SW). Es **self-only** — el target es siempre la pubkey que firma, así nadie puede programar pushes a terceros (sin vector de spam). Requiere haber activado push (`enablePush`) para que haya una subscription que timbrar.

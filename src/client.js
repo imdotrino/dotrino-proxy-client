@@ -1368,6 +1368,26 @@ export class WebSocketProxyClient {
   }
 
   /**
+   * DESPIÉRTAME AQUÍ: el timbre de una bóveda que no vive conectada (la de una Lambda). Si
+   * llega algo para la PERSONA de este acta y no hay nadie suyo conectado, el proxio guarda el
+   * mensaje en la cola de siempre y hace un POST a `url`; la bóveda arranca, se identifica y
+   * recibe lo encolado.
+   *
+   * Lo firma la llave que habla por la bóveda (su llave de comunicación), no la maestra, y el
+   * `acta` es lo que prueba que esa llave es de la cuenta: el timbre se guarda para la cuenta
+   * (`profileId`), que es a quien le escriben los servicios.
+   *
+   * @param {{ publicKey:string, sign:Function, url:string, acta:object }} opts
+   */
+  async registerWake ({ publicKey, sign, url, acta } = {}) {
+    if (!publicKey || typeof sign !== 'function' || !url || !acta) throw errorWithCode('registerWake requires { publicKey, sign, url, acta }', 'bad-args')
+    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify({ kind: 'wake', url }), ts: Date.now() }
+    const signature = await normalizeSignature(sign, data)
+    const r = await this._request({ type: 'push-subscribe', data, signature, acta }, 'push-subscribed')
+    return { kind: 'wake', url, profile: r?.publickey || null }
+  }
+
+  /**
    * Desactivar Web Push: cancela la PushSubscription local y la borra del proxy.
    * @param {Object} opts
    * @param {string} opts.publicKey  Pubkey JWK string del vault.
