@@ -40,3 +40,19 @@ test('registerWake con canal lo manda dentro de lo firmado', async () => {
   await c.registerWake({ publicKey: 'C', sign: async (d) => { signed = d; return 'f' }, url: 'https://x', acta: {}, channel: 'dotrino-vault-AB12-CD34-EF56' })
   assert.equal(JSON.parse(signed.subscription).channel, 'dotrino-vault-AB12-CD34-EF56')
 })
+
+test('self: el timbre es de la llave; un proxio sin wake-self no lo recibe', async () => {
+  const c = new WebSocketProxyClient({ autoReconnect: false })
+  c._request = () => Promise.resolve({ type: 'push-subscribed', publickey: 'REPLICA' })
+  const args = { publicKey: 'REPLICA', sign: async () => 'f', url: 'https://x', acta: {}, self: true }
+  c.caps = ['wake']
+  await assert.rejects(c.registerWake(args), (e) => e.code === 'no-wake-self-support')
+  c.caps = null
+  await assert.rejects(c.registerWake(args), (e) => e.code === 'no-wake-self-support')
+  c.caps = ['wake', 'wake-self']
+  let signed = null
+  const r = await c.registerWake({ ...args, sign: async (d) => { signed = d; return 'f' } })
+  assert.deepEqual(JSON.parse(signed.subscription), { kind: 'wake', url: 'https://x', self: true })
+  assert.equal(r.profile, 'REPLICA')
+  await assert.rejects(c.registerWake({ ...args, channel: 'dotrino-vault-AB12-CD34-EF56' }), (e) => e.code === 'bad-args')
+})

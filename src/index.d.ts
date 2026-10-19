@@ -343,7 +343,7 @@ export class WebSocketProxyClient {
    * nadie suyo conectado, el proxio encola y hace un POST a `url` (websocket-proxy ≥ 1.7.0).
    * Firma la llave de comunicación de la bóveda; el acta prueba que es de la cuenta.
    */
-  registerWake (opts: { publicKey: string; sign: SignFn; url: string; acta: object; channel?: string }): Promise<{ kind: 'wake'; url: string; profile: string | null }>
+  registerWake (opts: { publicKey: string; sign: SignFn; url: string; acta: object; channel?: string; self?: boolean }): Promise<{ kind: 'wake'; url: string; profile: string | null }>
   /** Desactivar Web Push: cancela la subscription local y la borra del proxy. */
   disablePush (opts: DisablePushOptions): Promise<void>
   /** Programar un push a la propia pubkey (one-shot o cron). Self-only. */
