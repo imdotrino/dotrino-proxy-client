@@ -576,6 +576,7 @@ Notas:
 - **One-shot vs recurrente**: pasá `when` (Date|ms) **o** `cron` (+ `tz`). El cron es de 5 campos (estándar).
 - **Catch-up**: si el proxy estuvo caído cuando vencía un job, **no** lo dispara tarde — los one-shot vencidos se descartan y los recurrentes avanzan al próximo futuro.
 - **Best-effort**: un recordatorio es un timbre puro (no un mensaje); si al disparar no hay subscription activa, no pasa nada (no se encola).
+- **Dirigido a la app** (0.40.0+, proxio ≥ 1.9.0): con `app` en el cliente, el recordatorio suena solo en la suscripción de esa app, no en todas las apps del perfil que tengan push. `listScheduledPushes` devuelve el `app` de cada uno.
 
 ## Eventos
 

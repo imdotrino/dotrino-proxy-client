@@ -1453,7 +1453,9 @@ export class WebSocketProxyClient {
       spec.fireAt = fireAt
     }
     if (payload) spec.payload = payload
-    const data = { op: 'schedule-push', publickey: publicKey, spec: JSON.stringify(spec), ts: Date.now() }
+    // La app va firmada, como en enablePush: el recordatorio suena solo en ella (proxio ≥ 1.9.0;
+    // uno más viejo la ignora y suena en todas, como antes).
+    const data = { op: 'schedule-push', publickey: publicKey, spec: JSON.stringify(spec), ts: Date.now(), ...this._appField() }
     const signature = await normalizeSignature(sign, data)
     const res = await this._request({ type: 'schedule-push', data, signature }, 'push-scheduled')
     return { jobId: res.jobId, nextFire: res.nextFire }
@@ -1476,7 +1478,7 @@ export class WebSocketProxyClient {
 
   /**
    * Listar los push programados propios.
-   * @returns {Promise<Array<{ jobId:number, nextFire:number, cron:string|null, tz:string|null, payload:object|null }>>}
+   * @returns {Promise<Array<{ jobId:number, app:string|null, nextFire:number, cron:string|null, tz:string|null, payload:object|null }>>}
    */
   async listScheduledPushes ({ publicKey, sign } = {}) {
     if (!publicKey || typeof sign !== 'function') throw new Error('listScheduledPushes requires { publicKey, sign }')
