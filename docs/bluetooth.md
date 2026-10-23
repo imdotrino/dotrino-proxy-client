@@ -40,6 +40,11 @@ WebRTC en la misma red.
 
 Donde no existe, el escalón no está y todo sigue por los demás. Eso no es un fallo.
 
+**En Linux, un solo dueño por proceso.** BlueZ deja registrar varias veces el mismo servicio,
+pero quien se conecta solo ve el primero. Así que el primer cliente del proceso que abre el
+Bluetooth se lo queda, y los demás siguen sin él (`bluetoothAvailable` en `false`). Lo nota la
+bóveda con varios perfiles en un proceso: el Bluetooth es del perfil que arrancó primero.
+
 ## 3. GATT
 
 Un servicio, cuatro características. UUID base `0be25149-664d-4d28-b496-3ca98a63fbXX`:

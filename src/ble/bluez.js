@@ -39,8 +39,18 @@ const DEFAULT_MTU = 23
 
 const lower = (u) => String(u).toLowerCase()
 
+/**
+ * UN SOLO DUEÑO POR PROCESO. BlueZ deja registrar varias aplicaciones con el mismo servicio,
+ * pero quien se conecta solo ve la primera: un segundo cliente anunciaría y nadie lo
+ * encontraría. Así que el primero que abre se lo queda, y los demás siguen sin Bluetooth
+ * (`bluetoothAvailable` en false), que es lo que de verdad tienen. La bóveda con varios
+ * perfiles en un proceso lo nota: el Bluetooth es del primero que arrancó.
+ */
+let owner = null
+
 export async function openBluez () {
   if (typeof process === 'undefined' || process.platform !== 'linux') return null
+  if (owner) return null
   const bus = await openSystemBus()
   if (!bus) return null
   let objs
@@ -57,7 +67,9 @@ export async function openBluez () {
     return ifs[ADAPTER] && ifs['org.bluez.GattManager1'] && ifs['org.bluez.LEAdvertisingManager1'] && plain(ifs[ADAPTER]).Powered
   })
   if (!path) { bus.close(); return null }
-  return new BluezAdapter(bus, path, objs)
+  if (owner) { bus.close(); return null }
+  owner = new BluezAdapter(bus, path, objs)
+  return owner
 }
 
 class BluezAdapter {
@@ -279,6 +291,7 @@ class BluezAdapter {
       await this.bus.call({ destination: BLUEZ, path: this.adapterPath, iface: 'org.bluez.GattManager1', member: 'UnregisterApplication', signature: 'o', body: [APP] }).catch(() => {})
     }
     this.bus.close()
+    if (owner === this) owner = null
   }
 }
 
