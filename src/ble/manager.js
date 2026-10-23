@@ -175,8 +175,10 @@ export class BluetoothManager {
         if (!this.wanted.size) this._removeScan(this._onFoundForPeers)
         await this._attachLink(p, link)
         link = null   // ya es del canal: se cierra con él
-      } catch (_) {
-        // Un aparato que no deja leer o se fue a mitad no es el nuestro: se sigue buscando.
+      } catch (e) {
+        // Se sigue buscando, pero se DICE: es un aparato de Dotrino (anuncia el servicio) que no
+        // se dejó leer o se fue a mitad, y callarlo es dejar un canal que no abre sin un porqué.
+        this.emit('error', { type: 'bluetooth_probe', device: dev.id, error: e, code: e?.code || null })
         if (link) await link.close().catch(() => {})
       } finally {
         this._probing.delete(dev.id)

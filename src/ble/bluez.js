@@ -34,6 +34,14 @@ const FLAGS = {
   [TX_UUID]: ['notify'],
 }
 const ADV = APP + '/adv0'
+/**
+ * DIRECCIONES FIJAS EN LA TABLA GATT. iOS guarda en caché la tabla de un aparato que ya vio; si
+ * BlueZ reparte direcciones nuevas al volver a registrar el servicio (otro arranque, el
+ * Bluetooth reiniciado), el iPhone lee por las viejas y recibe «The handle is invalid». Con el
+ * servicio en una dirección fija y las características detrás, siempre en el mismo orden, la
+ * tabla es la misma en cada arranque. Lejos del principio, donde van los servicios del sistema.
+ */
+const SVC_HANDLE = 0x0400
 const CONNECT_TIMEOUT_MS = 15_000
 const DEFAULT_MTU = 23
 
@@ -112,8 +120,10 @@ class BluezAdapter {
       },
     })
     this.bus.export(APP, { [OM]: { GetManagedObjects: () => ({ signature: 'a{oa{sa{sv}}}', body: [this._managed()] }) } })
-    this.bus.export(SVC, {})
-    for (const uuid of Object.keys(CHR)) this.bus.export(CHR[uuid], chr(uuid))
+    // BlueZ avisa por `Properties.Set` de la dirección que asignó: ya la sabemos, no hay nada que guardar.
+    const props = { [PROPS]: { Set: () => ({}) } }
+    this.bus.export(SVC, props)
+    for (const uuid of Object.keys(CHR)) this.bus.export(CHR[uuid], { ...chr(uuid), ...props })
     this.bus.export(ADV, {
       [ADV_IFACE]: { Release: () => ({}) },
       [PROPS]: {
@@ -128,15 +138,24 @@ class BluezAdapter {
 
   _managed () {
     /** @type {Record<string, any>} */
-    const out = { [SVC]: { [GATT_SVC]: { UUID: variant('s', SERVICE_UUID), Primary: variant('b', true) } } }
+    const out = { [SVC]: { [GATT_SVC]: { UUID: variant('s', SERVICE_UUID), Primary: variant('b', true), Handle: variant('q', SVC_HANDLE) } } }
+    // Cada característica ocupa dos direcciones (la declaración y el valor), y la que notifica una
+    // más (su descriptor de suscripción): el valor de la n-ésima cae en un sitio fijo.
+    let h = SVC_HANDLE
     for (const uuid of Object.keys(CHR)) {
-      out[CHR[uuid]] = { [GATT_CHR]: { UUID: variant('s', uuid), Service: variant('o', SVC), Flags: variant('as', FLAGS[uuid]) } }
+      h += 2
+      out[CHR[uuid]] = { [GATT_CHR]: { UUID: variant('s', uuid), Service: variant('o', SVC), Flags: variant('as', FLAGS[uuid]), Handle: variant('q', h) } }
+      if (FLAGS[uuid].includes('notify')) h += 1
     }
     return out
   }
 
+  /**
+   * `Discoverable` pone la bandera LE General Discoverable en el anuncio. Sin ella BlueZ anuncia
+   * igual, pero iOS no lo enseña a ninguna app: el iPhone tenía el PC al lado y no lo veía.
+   */
   _advProps () {
-    return { Type: variant('s', 'peripheral'), ServiceUUIDs: variant('as', [SERVICE_UUID]) }
+    return { Type: variant('s', 'peripheral'), ServiceUUIDs: variant('as', [SERVICE_UUID]), Discoverable: variant('b', true) }
   }
 
   /**
