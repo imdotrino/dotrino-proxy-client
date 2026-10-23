@@ -173,6 +173,34 @@ Notas:
 - Si el proxy responde `enabled: false` (sin TURN configurado), todo sigue STUN-only con fallback al proxy: no hay que hacer nada.
 - El proxy exige `identify` previo en la misma conexión: tras una reconexión, vuelve a llamar a `identify` antes de que toque renovar.
 
+## Bluetooth (0.41.0+)
+
+Escalón del transporte entre WebRTC directo y TURN: dos aparatos cerca hablan sin nadie en
+medio aunque no compartan red. El contrato del cable está en
+[`docs/bluetooth.md`](./docs/bluetooth.md), y lo cumplen igual los puertos de `dotrino-native`.
+
+```js
+// Encenderlo es a propósito: hace que el aparato anuncie que está ahí.
+const client = new WebSocketProxyClient({ url, bluetooth: true })   // Node en Linux: BlueZ por D-Bus
+
+// Desde aquí, send / sendSealedTo eligen solos: WebRTC directo > Bluetooth > TURN > proxio.
+await client.routeTo(token)   // 'bluetooth' cuando va por ahí
+
+// Anunciar y descubrir, sin proxio (la invitación de emparejar, una tarjeta de contacto):
+const stop = client.announceBluetooth('pair', invitacion)
+const vistos = await client.discoverBluetooth({ kind: 'pair', timeoutMs: 8000, onFound: (b) => {} })
+stop()
+```
+
+- **Dónde existe:** Node en Linux (BlueZ, con un cliente D-Bus propio y sin dependencias, porque
+  la bóveda va en un ejecutable único y un módulo nativo no entra), Android e iOS (`dotrino-native`).
+  En el navegador no: no puede anunciar.
+- Donde no hay Bluetooth, `bluetoothAvailable` es `false` y todo sigue por los demás escalones.
+  `announceBluetooth` y `discoverBluetooth` lanzan `no-bluetooth`. Si lo hay y no arranca, se
+  emite `error` con `type: 'bluetooth_unavailable'`.
+- Un adaptador propio (otra plataforma, pruebas) se pasa como `bluetooth: adaptador`; el contrato
+  está en la cabecera de `src/ble/manager.js`.
+
 ## Estadísticas de red (0.28.0+)
 
 `await client.stats()` dice cuánto entró y salió, **por conexión**, y **por qué camino**:

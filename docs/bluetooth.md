@@ -144,7 +144,11 @@ tamaño del canal directo.
 
 Lo que se haga con lo descubierto es de quien lo pidió. Una invitación sigue el emparejamiento de
 siempre (código tecleado en la bóveda, `cert.iss === qr.iss`, y si responden dos aparatos se
-cancela). Una tarjeta de contacto sigue la solicitud entre pares.
+cancela y es un incidente: eso lo decide la bóveda, no el pilar). Una tarjeta de contacto sigue la
+solicitud entre pares, y ahí que lleguen varios a la vez es lo normal (un grupo, una partida).
+
+**El pilar no limita cuántos se conectan**: un periférico atiende a varios centrales a la vez, cada
+uno con su canal y su llave.
 
 ## 7. Seguridad, sin exagerar
 

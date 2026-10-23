@@ -33,7 +33,7 @@ export class BluetoothManager {
    * @param {(to: string, payload: any) => void} opts.signalSend   trama por el proxio
    * @param {(from: string, parsed: any, meta: any) => void} opts.deliverMessage
    * @param {(event: string, ...args: any[]) => void} opts.emit
-   * @param {(dir: 'in'|'out', token: string, bytes: number, route: string) => void} [opts.count]
+   * @param {(dir: 'in'|'out', token: string, bytes: number, route: 'bluetooth') => void} [opts.count]
    */
   constructor (opts) {
     this.acceptFrom = null
@@ -346,8 +346,9 @@ export class BluetoothManager {
   /**
    * Busca en el aire durante `timeoutMs` lo que otros anuncian con `kind`. No necesita el
    * proxio. `onFound` avisa de cada uno según aparece; la promesa devuelve todos.
+   * @param {{ kind: string, timeoutMs?: number, onFound?: (b: {kind: string, data: string}) => void }} opts
    */
-  async discover ({ kind, timeoutMs = 8000, onFound } = {}) {
+  async discover ({ kind, timeoutMs = 8000, onFound }) {
     if (!this.adapter) throw Object.assign(new Error('bluetooth: not available here'), { code: 'no-bluetooth' })
     const found = []
     const done = new Set()

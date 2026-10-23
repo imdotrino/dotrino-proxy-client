@@ -29,12 +29,44 @@ export interface WebSocketProxyClientOptions {
   encPubResolver?: (publickey: string) => Promise<string | null> | string | null
   acceptDirectFrom?: (token: string) => boolean
   /**
+   * The Bluetooth step (docs/bluetooth.md), between direct WebRTC and TURN. `true` looks for
+   * BlueZ (Node on Linux); an object is an adapter of your own. Off by default: turning it on
+   * makes the device advertise that it is there.
+   */
+  bluetooth?: boolean | BluetoothAdapter
+  /**
    * Which app this connection is (websocket-proxy >= 1.4.0): `messenger`, `vault`…
    * Several apps on a phone share one key; with this the proxy rings only this app and hands
    * it only its own queued messages. a-z, 0-9 and `-`, up to 32. Without it: everything.
    */
   app?: string
 }
+
+/** A Bluetooth adapter: the contract of `src/ble/manager.js`. */
+export interface BluetoothAdapter {
+  start (server: {
+    hello (): Uint8Array
+    beacon (): Uint8Array
+    onWrite (centralId: string, bytes: Uint8Array): void
+    onDisconnect (centralId: string): void
+  }): Promise<void>
+  notify (centralId: string, bytes: Uint8Array): Promise<void>
+  chunkFor (centralId: string): number
+  drop (centralId: string): Promise<void>
+  scan (onFound: (device: { id: string }) => void): Promise<() => Promise<void>>
+  connect (device: { id: string }): Promise<{
+    chunk: number
+    read (uuid: string): Promise<Uint8Array>
+    write (bytes: Uint8Array): Promise<void>
+    subscribe (onValue: (bytes: Uint8Array) => void): Promise<void>
+    close (): Promise<void>
+    onClose (cb: () => void): void
+  }>
+  stop (): Promise<void>
+}
+
+/** What a device announces over Bluetooth on purpose (`announceBluetooth`). */
+export interface BluetoothBeacon { kind: string; data: string }
 
 /** What an app plugs in when the encryption private key lives in the vault, not here. */
 export interface SealingBridge {
@@ -162,10 +194,10 @@ export interface ScheduledPush {
 }
 
 /** Por dónde va una conexión. `connecting`: por el proxio mientras se negocia WebRTC; `failed`: WebRTC no salió. */
-export type TrafficRoute = 'proxy' | 'connecting' | 'failed' | 'direct' | 'turn' | 'webrtc'
+export type TrafficRoute = 'proxy' | 'connecting' | 'failed' | 'direct' | 'turn' | 'webrtc' | 'bluetooth'
 
 /** Bytes de payload (UTF-8) por el camino por el que pasaron. */
-export interface TrafficByPath { proxy: number; direct: number; turn: number; webrtc: number }
+export interface TrafficByPath { proxy: number; direct: number; turn: number; webrtc: number; bluetooth: number }
 
 export interface PeerTraffic {
   token: string | null
@@ -187,6 +219,8 @@ export interface TransportStats {
   publickey: string | null
   connected: boolean
   webrtc: boolean
+  /** Bluetooth on and its adapter running. */
+  bluetooth: boolean
   /** El relevo TURN: null si nunca se pidió; si no, activo o por qué no (`turn-daily-cap`, `turn-quota`, `turn-usage-unknown`, `turn-disabled`). */
   turn: { active: boolean; code: string | null; retryAt?: number | null; expiresAt?: number | null } | null
   since: number
@@ -273,7 +307,7 @@ export class WebSocketProxyClient {
    * `peerPubkey` — from the channel, the room roster or the invite.
    */
   /** Por dónde le llega ahora un mensaje a este token (0.34.0). */
-  routeTo (token: string | null): Promise<'socket' | 'direct' | 'turn' | 'webrtc' | 'proxy' | 'offline'>
+  routeTo (token: string | null): Promise<'socket' | 'direct' | 'turn' | 'webrtc' | 'bluetooth' | 'proxy' | 'offline'>
   sendSealedTo (
     toTokens: string | string[],
     payload: any,
@@ -354,6 +388,12 @@ export class WebSocketProxyClient {
   listScheduledPushes (opts: { publicKey: string; sign: SignFn }): Promise<ScheduledPush[]>;
   connectWebRTC (token: string): Promise<void>
   isWebRTCOpen (token: string): boolean
+  /** Bluetooth is on in this client (option `bluetooth`, and an adapter that started). */
+  readonly bluetoothAvailable: boolean
+  /** Announces `{kind, data}` until the returned function is called. Throws `no-bluetooth`. */
+  announceBluetooth (kind: string, data: string): () => void
+  /** What devices around announce with that `kind`. Works without the proxy. Throws `no-bluetooth`. */
+  discoverBluetooth (opts: { kind: string; timeoutMs?: number; onFound?: (b: BluetoothBeacon) => void }): Promise<BluetoothBeacon[]>
   /** Cuánto entró y salió, por conexión, y por qué camino (proxio, WebRTC directo o por TURN). */
   stats (): Promise<TransportStats>
   getPublicKey (): Promise<string>
