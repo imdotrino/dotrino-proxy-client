@@ -168,3 +168,22 @@ test('sin Bluetooth: anunciar lo dice, subir no hace nada', async () => {
   assert.equal(m.handleIncoming('otro', { t: W.BLE_TAG, kind: 'offer', bid: 'b', epub: 'e' }), true)
   assert.equal(m.handleIncoming('otro', { t: 'otra-cosa' }), false)
 })
+
+test('tarjeta de contacto: el fragmento #to= del messenger, ida y vuelta', () => {
+  const publickey = '{"crv":"P-256","ext":true,"key_ops":["verify"],"kty":"EC","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"}'
+  const data = W.encodeContact({ publickey, nickname: 'Ana María & co' })
+  assert.match(data, /^to=[A-Za-z0-9_-]+&nick=Ana%20Mar%C3%ADa%20%26%20co$/)
+  assert.deepEqual(W.decodeContact(data), { publickey, nickname: 'Ana María & co' })
+  assert.deepEqual(W.decodeContact(W.encodeContact({ publickey })), { publickey, nickname: '' })
+  assert.equal(W.decodeContact(W.encodeContact({ publickey, nickname: 'x'.repeat(60) })).nickname.length, 40)
+  // Cabe en el beacon con cualquier apodo: el recorte es también por bytes.
+  for (const n of ['中'.repeat(40), '😀'.repeat(40), 'ñ'.repeat(40)]) {
+    const nick = W.decodeContact(W.encodeContact({ publickey, nickname: n })).nickname
+    assert.ok(new TextEncoder().encode(nick).length <= 60 && nick.length <= 40 && n.startsWith(nick))
+    W.encodeBeacon(W.KIND_CONTACT, W.encodeContact({ publickey, nickname: n }))
+  }
+  assert.equal(W.trimNick('😀'.repeat(30)), '😀'.repeat(15)) // sin partir un emoji
+  assert.equal(W.decodeContact('to=bm9wZQ'), null) // no es un JWK
+  assert.equal(W.decodeContact('nick=a'), null)
+  assert.throws(() => W.encodeContact({ publickey: '' }), (e) => e.code === 'bad-contact')
+})

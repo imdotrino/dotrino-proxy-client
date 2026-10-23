@@ -69,7 +69,20 @@ Como mucho 512 bytes. Dos usos hoy:
 | `kind` | `data` | Quién lo pone |
 |---|---|---|
 | `pair` | la invitación de emparejar (`c…`, `dotrino-vault/docs/pairing-protocol.md` §1.5) | la bóveda, solo con la ventana de «Emparejar» abierta |
-| `contact` | la tarjeta pública de contacto | la pantalla de añadir amigo, solo mientras está abierta |
+| `contact` | la tarjeta pública de contacto (abajo) | la pantalla de añadir amigo, solo mientras está abierta |
+
+**La tarjeta de contacto** es el mismo fragmento que el enlace `#to=` del messenger:
+
+```
+to=<base64url de la publickey>&nick=<apodo>
+```
+
+- `publickey`: la cadena JWK tal cual la escribe la identidad (`me.publickey`), en UTF-8.
+- `nick`: opcional. Se recorta a 40 unidades UTF-16 **y** 60 bytes UTF-8, por puntos de código
+  enteros, y se codifica como `encodeURIComponent`: lo que no es `A-Za-z0-9-_.!~*'()` va como `%XX`
+  de sus bytes UTF-8, en mayúsculas. Con eso, la tarjeta más larga cabe en el `beacon`.
+- `encodeContact` / `decodeContact` (`src/ble/wire.js`, y `BleWire` en `dotrino-native`). Quien la
+  recibe manda la solicitud entre pares de siempre a esa llave: aceptar es de los dos.
 
 ## 4. Señalización (por el proxio, como la de WebRTC)
 
@@ -158,6 +171,8 @@ uno con su canal y su llave.
 ## 7. Seguridad, sin exagerar
 
 - El anuncio no lleva identidad, y el `bid` cambia cada 15 minutos.
+- La tarjeta de contacto **sí** lleva tu llave pública y tu apodo, y la lee cualquiera que esté
+  cerca. Por eso solo se anuncia con la pantalla de añadir abierta. Es lo mismo que enseñar tu QR.
 - La llave del canal sale de un ECDH efímero. El proxio ve las dos llaves públicas, no el secreto.
 - Lo que no cierra, y es lo mismo que con WebRTC: un proxio malicioso **y** cerca puede cambiar
   las llaves de la señalización y meterse en medio. Lo que viaja por un canal directo va además

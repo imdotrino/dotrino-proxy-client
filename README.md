@@ -190,6 +190,11 @@ await client.routeTo(token)   // 'bluetooth' cuando va por ahí
 const stop = client.announceBluetooth('pair', invitacion)
 const vistos = await client.discoverBluetooth({ kind: 'pair', timeoutMs: 8000, onFound: (b) => {} })
 stop()
+
+// La tarjeta de contacto (0.42.0+): el fragmento `#to=` del messenger.
+import { encodeContact, decodeContact } from '@dotrino/proxy-client'
+const fin = client.announceBluetooth('contact', encodeContact({ publickey, nickname: 'Ana' }))
+const cerca = (await client.discoverBluetooth({ kind: 'contact' })).map((b) => decodeContact(b.data)).filter(Boolean)
 ```
 
 - **Dónde existe:** Node en Linux (BlueZ, con un cliente D-Bus propio y sin dependencias, porque

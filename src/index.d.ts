@@ -471,3 +471,10 @@ export function unpack (bytes: Uint8Array | ArrayBuffer): any
 export function hasBinary (v: any): boolean
 export function encodeFrame (header: Record<string, any>, body: Uint8Array): Uint8Array
 export function decodeFrame (data: Uint8Array | ArrayBuffer): { header: Record<string, any>, body: Uint8Array }
+
+/** The contact card announced over Bluetooth (`kind: 'contact'`): `to=<publickey b64url>&nick=<alias>`, the messenger's `#to=` fragment. */
+export function encodeContact(card: { publickey: string; nickname?: string }): string
+/** The card of an announced `contact`, or null when it is not understood. */
+export function decodeContact(data: string): { publickey: string; nickname: string } | null
+export const KIND_PAIR: 'pair'
+export const KIND_CONTACT: 'contact'
