@@ -160,6 +160,17 @@ test('anunciar y descubrir, sin proxio', async () => {
   for (const { m } of n.values()) await m.stop()
 })
 
+test('dos búsquedas seguidas: la segunda espera a que la primera acabe de parar (BlueZ, InProgress)', async () => {
+  const air = new FakeAir({ slowStop: 30 })
+  const n = net(air, ['tok-v', 'tok-d'])
+  for (const { m, adapter } of n.values()) await m.start(adapter)
+  n.get('tok-v').m.announce('contact', 'card')
+  for (let i = 0; i < 3; i++) {
+    assert.deepEqual(await n.get('tok-d').m.discover({ kind: 'contact', timeoutMs: 60 }), [{ kind: 'contact', data: 'card' }])
+  }
+  for (const { m } of n.values()) await m.stop()
+})
+
 test('sin Bluetooth: anunciar lo dice, subir no hace nada', async () => {
   const m = new BluetoothManager({ getSelfToken: () => 't', signalSend: () => { throw new Error('no') }, deliverMessage () {}, emit () {} })
   assert.throws(() => m.announce('pair', 'x'), { code: 'no-bluetooth' })

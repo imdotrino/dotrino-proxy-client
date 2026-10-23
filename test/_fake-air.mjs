@@ -4,9 +4,11 @@ import { HELLO_UUID, BEACON_UUID } from '../src/ble/wire.js'
 
 export class FakeAir {
   /** `broadcast`: cada notificación llega a TODOS los centrales suscritos, como en BlueZ. */
-  constructor ({ mtu = 23, broadcast = false } = {}) {
+  /** `slowStop`: parar una búsqueda tarda, y empezar otra mientras tanto falla como en BlueZ (`InProgress`). */
+  constructor ({ mtu = 23, broadcast = false, slowStop = 0 } = {}) {
     this.mtu = mtu
     this.broadcast = broadcast
+    this.slowStop = slowStop
     this.devices = new Map()
     this.scanners = new Set()
   }
@@ -46,10 +48,17 @@ class FakeAdapter {
   }
 
   async scan (onFound) {
+    if (this.stopping) throw Object.assign(new Error('org.bluez.Error.InProgress: Operation already in progress'), { code: 'dbus-error' })
     const s = { owner: this, onFound }
     this.air.scanners.add(s)
     for (const d of this.air.devices.values()) if (d !== this) setTimeout(() => onFound({ id: d.id }), 1)
-    return async () => { this.air.scanners.delete(s) }
+    return async () => {
+      this.air.scanners.delete(s)
+      if (!this.air.slowStop) return
+      this.stopping = true
+      await new Promise((resolve) => setTimeout(resolve, this.air.slowStop))
+      this.stopping = false
+    }
   }
 
   async connect (dev) {
