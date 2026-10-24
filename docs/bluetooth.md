@@ -38,6 +38,11 @@ WebRTC en la misma red.
 | Android (`dotrino-native`) | sí | sí |
 | iOS (`dotrino-native`) | sí | sí |
 
+**Pendiente, decidido así (dueño, 2026-10-23): Node en macOS y Windows.** Haría falta un auxiliar
+nativo aparte (Swift en macOS, WinRT en Windows), porque un `.node` no entra en el SEA. No corre
+prisa: la red local ya deja descubrir la bóveda en los tres sistemas, y el Bluetooth solo añade el
+caso de un teléfono cerca sin red compartida, raro con una bóveda en un PC.
+
 Donde no existe, el escalón no está y todo sigue por los demás. Eso no es un fallo. Para anunciar
 y descubrir, la red local (`lan.md`, mDNS) sí existe en Node en las tres plataformas, y
 `announceNearby` / `discoverNearby` usan los dos medios a la vez.
