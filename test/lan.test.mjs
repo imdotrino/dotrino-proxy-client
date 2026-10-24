@@ -62,3 +62,11 @@ test('el cliente anuncia y busca cerca por la red local, y sin medios dice no-ne
   await assert.rejects(none.announceNearby('pair', 'x'), { code: 'no-nearby' })
   await assert.rejects(none.discoverNearby({ kind: 'pair', timeoutMs: 10 }), { code: 'no-nearby' })
 })
+
+test('un anuncio que nadie cerró no deja colgado al proceso', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const mod = new URL('../src/lan/mdns.js', import.meta.url).href
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import { announceLan } from '${mod}'; await announceLan('pair', 'cX').catch(() => {})`], { timeout: 8000 })
+  assert.equal(r.signal, null, 'se fue solo, sin que hubiera que matarlo')
+  assert.equal(r.status, 0)
+})

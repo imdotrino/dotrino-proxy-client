@@ -183,6 +183,9 @@ async function openSocket () {
   for (const a of addrs) { try { sock.addMembership(GROUP, a) } catch (_) {} }
   if (!addrs.length) { try { sock.addMembership(GROUP) } catch (_) {} }
   sock.on('error', () => {})
+  // Anunciar o buscar no mantiene vivo el proceso: lo vivo es lo que lo usa (el daemon, la app).
+  // Sin esto, una invitación que nadie cerró dejaba colgado al que la abrió al irse.
+  sock.unref()
   return { sock, addrs }
 }
 
@@ -240,6 +243,7 @@ export async function announceLan (kind, data) {
   })
   announce()
   const again = setTimeout(() => announce(), 1000)
+  again.unref?.()
   let stopped = false
   return () => {
     if (stopped) return
