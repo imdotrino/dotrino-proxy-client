@@ -1,6 +1,6 @@
 {
   "name": "@dotrino/proxy-client",
-  "version": "0.42.1",
+  "version": "0.43.0",
   "description": "Cliente WebSocket para el proxy de Dotrino (tokens, canales, firma ECDSA, Web Push)",
   "type": "module",
   "main": "src/index.js",
@@ -14,7 +14,11 @@
     "./sw": "./sw/dotrino-push-sw.js",
     "./sw/dotrino-push-sw.js": "./sw/dotrino-push-sw.js",
     "./sealing": "./src/sealing.js",
-    "./encpub": "./src/encpub.js"
+    "./encpub": "./src/encpub.js",
+    "./lan": {
+      "types": "./src/lan/mdns.d.ts",
+      "import": "./src/lan/mdns.js"
+    }
   },
   "files": [
     "src",

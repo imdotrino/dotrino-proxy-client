@@ -206,6 +206,20 @@ const cerca = (await client.discoverBluetooth({ kind: 'contact' })).map((b) => d
 - Un adaptador propio (otra plataforma, pruebas) se pasa como `bluetooth: adaptador`; el contrato
   está en la cabecera de `src/ble/manager.js`.
 
+## Cerca: Bluetooth y red local a la vez (0.43.0+)
+
+Lo mismo que anuncia el Bluetooth, también por mDNS en la red local (Node en Linux, macOS y
+Windows; Android e iOS en `dotrino-native`). Contrato en [`docs/lan.md`](./docs/lan.md).
+
+```js
+const client = new WebSocketProxyClient({ url, bluetooth: true, lan: true })
+const stop = await client.announceNearby('pair', invitacion)            // por cada medio que haya
+const vistos = await client.discoverNearby({ kind: 'contact', timeoutMs: 6000 })
+// → [{ kind, data, via: 'bluetooth' | 'lan' }]; sin ningún medio, lanza `no-nearby`
+
+import { discoverLan } from '@dotrino/proxy-client/lan'                  // solo la red local, sin cliente
+```
+
 ## Estadísticas de red (0.28.0+)
 
 `await client.stats()` dice cuánto entró y salió, **por conexión**, y **por qué camino**:

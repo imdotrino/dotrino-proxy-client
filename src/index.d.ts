@@ -35,6 +35,11 @@ export interface WebSocketProxyClientOptions {
    */
   bluetooth?: boolean | BluetoothAdapter
   /**
+   * Announce and discover on the local network by mDNS (docs/lan.md), Node only. Off by default,
+   * like Bluetooth: announcing tells the network something is there.
+   */
+  lan?: boolean
+  /**
    * Which app this connection is (websocket-proxy >= 1.4.0): `messenger`, `vault`…
    * Several apps on a phone share one key; with this the proxy rings only this app and hands
    * it only its own queued messages. a-z, 0-9 and `-`, up to 32. Without it: everything.
@@ -394,6 +399,10 @@ export class WebSocketProxyClient {
   announceBluetooth (kind: string, data: string): () => void
   /** What devices around announce with that `kind`. Works without the proxy. Throws `no-bluetooth`. */
   discoverBluetooth (opts: { kind: string; timeoutMs?: number; onFound?: (b: BluetoothBeacon) => void }): Promise<BluetoothBeacon[]>
+  /** Announces `{kind, data}` on every medium this client has (Bluetooth, local network). Throws `no-nearby`. */
+  announceNearby (kind: string, data: string): Promise<() => void>
+  /** What is announced nearby with that `kind`, by every medium at once. Throws `no-nearby`. */
+  discoverNearby (opts: { kind: string; timeoutMs?: number; onFound?: (b: NearbyBeacon) => void }): Promise<NearbyBeacon[]>
   /** Cuánto entró y salió, por conexión, y por qué camino (proxio, WebRTC directo o por TURN). */
   stats (): Promise<TransportStats>
   getPublicKey (): Promise<string>
@@ -478,3 +487,6 @@ export function encodeContact(card: { publickey: string; nickname?: string }): s
 export function decodeContact(data: string): { publickey: string; nickname: string } | null
 export const KIND_PAIR: 'pair'
 export const KIND_CONTACT: 'contact'
+
+/** Something announced nearby, and by which medium it was seen. */
+export interface NearbyBeacon { kind: string; data: string; via: 'bluetooth' | 'lan' }

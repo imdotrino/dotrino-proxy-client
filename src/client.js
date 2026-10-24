@@ -235,6 +235,9 @@ export class WebSocketProxyClient {
     }) : null
     if (this._ble && typeof options.acceptDirectFrom === 'function') this._ble.acceptFrom = options.acceptDirectFrom
     this._bleStarting = null
+    // LA RED LOCAL (docs/lan.md): anunciar y buscar por mDNS, solo en Node. Como el Bluetooth,
+    // se pide a propósito (`lan: true`): anunciar le dice a la red que aquí hay algo.
+    this._lanOption = !!options.lan
   }
 
   // ---------- public API ----------
@@ -297,6 +300,68 @@ export class WebSocketProxyClient {
     if (!this._ble) throw errorWithCode('bluetooth: this client was made without it (option `bluetooth`)', 'no-bluetooth')
     await this._prepareBluetooth()
     return this._ble.discover({ kind, timeoutMs, onFound })
+  }
+
+  /** La red local (docs/lan.md), cargada una vez y solo si se pidió (`lan: true`, Node). */
+  async _lanModule () {
+    if (!this._lanOption) return null
+    const mod = './lan/mdns.js'
+    return import(/* @vite-ignore */ mod)
+  }
+
+  /**
+   * ANUNCIA CERCA: `{kind, data}` por cada medio que este cliente tenga, el Bluetooth y la red
+   * local, hasta que se llame a lo que devuelve. Un medio que falla no tumba a los otros; si no
+   * queda ninguno, lanza `no-nearby`.
+   * @returns {Promise<() => void>}
+   */
+  async announceNearby (kind, data) {
+    const stops = []
+    if (this._ble) {
+      await this._prepareBluetooth()
+      if (this._ble.available) stops.push(this._ble.announce(kind, data))
+    }
+    const lan = await this._lanModule()
+    if (lan) {
+      try { stops.push(await lan.announceLan(kind, data)) } catch (e) {
+        this._emit('error', { type: 'lan_unavailable', error: e, code: e?.code || null })
+      }
+    }
+    if (!stops.length) throw errorWithCode('nearby: neither Bluetooth nor the local network is available here', 'no-nearby')
+    return () => { for (const s of stops) { try { s() } catch (_) {} } }
+  }
+
+  /**
+   * BUSCA CERCA, por los mismos medios y a la vez. Cada hallazgo lleva `via` (`'bluetooth'` o
+   * `'lan'`); lo mismo visto por los dos medios sale una vez. Sin ningún medio, `no-nearby`.
+   * @returns {Promise<{kind: string, data: string, via: 'bluetooth'|'lan'}[]>}
+   */
+  async discoverNearby ({ kind, timeoutMs = 8000, onFound } = /** @type {any} */ ({})) {
+    const found = []
+    const add = (via) => (f) => {
+      if (found.some((x) => x.kind === f.kind && x.data === f.data)) return
+      const item = { kind: f.kind, data: f.data, via }
+      found.push(item)
+      try { onFound?.(item) } catch (_) {}
+    }
+    const runs = []
+    if (this._ble) {
+      await this._prepareBluetooth()
+      if (this._ble.available) runs.push(this._ble.discover({ kind, timeoutMs, onFound: add('bluetooth') }))
+    }
+    const lan = await this._lanModule()
+    if (lan) {
+      runs.push(lan.discoverLan({ kind, timeoutMs, onFound: add('lan') }).catch((e) => {
+        this._emit('error', { type: 'lan_unavailable', error: e, code: e?.code || null })
+        return null
+      }))
+    }
+    if (!runs.length) throw errorWithCode('nearby: neither Bluetooth nor the local network is available here', 'no-nearby')
+    const results = await Promise.all(runs)
+    if (!this._ble?.available && results.every((r) => r === null)) {
+      throw errorWithCode('nearby: neither Bluetooth nor the local network is available here', 'no-nearby')
+    }
+    return found
   }
 
   connect () {

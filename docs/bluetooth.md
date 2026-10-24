@@ -38,7 +38,9 @@ WebRTC en la misma red.
 | Android (`dotrino-native`) | sí | sí |
 | iOS (`dotrino-native`) | sí | sí |
 
-Donde no existe, el escalón no está y todo sigue por los demás. Eso no es un fallo.
+Donde no existe, el escalón no está y todo sigue por los demás. Eso no es un fallo. Para anunciar
+y descubrir, la red local (`lan.md`, mDNS) sí existe en Node en las tres plataformas, y
+`announceNearby` / `discoverNearby` usan los dos medios a la vez.
 
 **En Linux, un solo dueño por proceso.** BlueZ deja registrar varias veces el mismo servicio,
 pero quien se conecta solo ve el primero. Así que el primer cliente del proceso que abre el
