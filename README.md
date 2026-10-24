@@ -443,6 +443,8 @@ client.on('channel_joined', (_ch, t) => client.helloTo(t))             // y a lo
 - **Un token no cambia de dueño.** Un segundo saludo con otra identidad se descarta y se
   avisa (`hello_conflict`): manda el primero.
 - **Quien se va, se olvida** (`peer_disconnected`). Los tokens no se reciclan.
+- **`await client.whoIs(token)`** (0.44.0+): de quién es un token, saludando si nadie lo dijo todavía
+  (lo que da canjear un código de emparejar). `null` si no contesta a tiempo.
 
 **No autentica, y no hace falta que lo haga.** Mentir sobre la propia identidad solo
 consigue que te sellen a una llave que no puedes abrir: el embustero se queda sin leer y

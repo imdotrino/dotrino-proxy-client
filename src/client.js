@@ -907,6 +907,28 @@ export class WebSocketProxyClient {
     return this._tokenPubkeys.get(token) || null
   }
 
+  /**
+   * DE QUIÉN ES ESTE TOKEN, preguntándolo si hace falta: canjear un código da la dirección pero
+   * no dice de quién es, y sin eso no hay a quién sellarle. Saluda (`helloTo`) y espera el
+   * `peer_identity` de vuelta. No autentica, y no hace falta: lo que se le mande va sellado a la
+   * llave que ESA identidad anunció firmada. Espera a estar identificado, porque un saludo sin
+   * identidad no dice nada.
+   * @returns {Promise<string|null>} la pubkey, o null si no contestó en `timeoutMs`
+   */
+  async whoIs (token, timeoutMs = 10000) {
+    const known = this.pubkeyOfToken(token)
+    if (known) return known
+    const t0 = Date.now()
+    while (!this.myPublickey && Date.now() - t0 < timeoutMs) await new Promise((r) => setTimeout(r, 150))
+    if (!this.myPublickey) return null
+    return new Promise((resolve) => {
+      const done = (pk) => { off(); clearTimeout(timer); resolve(pk) }
+      const off = this.on('peer_identity', (t, pk) => { if (t === token) done(pk) })
+      const timer = setTimeout(() => done(null), Math.max(1000, timeoutMs - (Date.now() - t0)))
+      try { this.helloTo(token) } catch (_) { done(null) }
+    })
+  }
+
   /** Olvidar un token (se fue, o se quiere volver a preguntar). Sin argumento, todos. */
   forgetToken (token) {
     if (token == null) { this._tokenPubkeys.clear(); this._helloSent.clear(); this._tokenSpeaks.clear(); return }

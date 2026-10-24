@@ -347,6 +347,8 @@ export class WebSocketProxyClient {
   helloTo (to: string | string[]): void
   /** Whose this token is, if anybody has said so. Null means «not yet». */
   pubkeyOfToken (token: string): string | null
+  /** Whose this token is, asking it (helloTo) when nobody said yet. null if it did not answer in time. */
+  whoIs (token: string, timeoutMs?: number): Promise<string | null>
   /**
    * Whether the other side said in its greeting that it understands `feature` (0.36.0;
    * today only `binary`). Null means it has not greeted yet. Takes a token or a pubkey.

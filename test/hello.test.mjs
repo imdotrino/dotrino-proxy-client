@@ -107,3 +107,14 @@ test('quien se va se olvida: su token deja de valer para sellar', () => {
   c._handleFrame(JSON.stringify({ type: 'disconnected', token: 'OTRO' }))
   assert.equal(c.pubkeyOfToken('OTRO'), null)
 })
+
+test('whoIs saluda y devuelve la pubkey que contesta; sin respuesta, null', async () => {
+  const c = client({ requireSealed: true })
+  c.myPublickey = 'PK-MIA'
+  const asking = c.whoIs('OTRO', 2000)
+  assert.equal(directed(c, 'OTRO').length, 1, 'saludó')
+  c._handleFrame(JSON.stringify({ type: 'message', from: 'OTRO', message: JSON.stringify({ t: '__cc_hello__', publickey: 'PK-OTRO' }) }))
+  assert.equal(await asking, 'PK-OTRO')
+  assert.equal(await c.whoIs('OTRO'), 'PK-OTRO', 'lo ya sabido no vuelve a preguntar')
+  assert.equal(await c.whoIs('NADIE', 1000), null)
+})
