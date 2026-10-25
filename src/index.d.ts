@@ -2,7 +2,10 @@ export interface WebSocketProxyClientOptions {
   url?: string
   autoReconnect?: boolean
   maxReconnectAttempts?: number
+  /** Minimum wait before a reconnect attempt, in ms. Default 3000. */
   reconnectDelay?: number
+  /** Cap of the random window added to `reconnectDelay`; the window doubles on each failed attempt. Default 30000. */
+  reconnectMaxDelay?: number
   /** Give up on a socket that has not opened after this many ms (counts as a failed attempt). Default 15000; 0 disables. */
   connectTimeout?: number
   /** Enable WebRTC DataChannel transport with proxy fallback. Default true. */

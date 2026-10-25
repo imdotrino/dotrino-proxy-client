@@ -643,6 +643,16 @@ Notas:
 | `reconnect_failed`  | `(attempts)`                     |
 | `abuse_notice`      | `({ from, operation, severity, timestamp })` — el proxy avisa que `from` está enviando demasiado. Las apps pueden penalizar el ranking de ese token. |
 
+## Reconexión: espera creciente y al azar (0.45.0+)
+
+Tras una caída, cada reintento espera `reconnectDelay` (por defecto 3 s) más un azar dentro de una
+ventana que se dobla en cada intento fallido, hasta `reconnectMaxDelay` (por defecto 30 s): 3–6 s,
+3–9 s, 3–15 s, 3–27 s y de ahí 3–33 s. La ventana vuelve a empezar al abrir.
+
+El azar es para el reinicio del proxio: todos sus clientes pierden el socket a la vez, y con una
+espera fija volvían todos en el mismo segundo. El proxio identifica unas 2.500 conexiones por segundo
+(medido el 2026-10-25), así que 100.000 bóvedas lo tenían unos 40 s saturado al volver.
+
 ## Errores: comprueba por `code`, nunca por la frase
 
 Cuando una petición falla, el `Error` trae un **`code` estable**. Empareja por

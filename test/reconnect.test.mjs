@@ -77,7 +77,7 @@ test('la red se cae un rato: el cliente sigue intentándolo hasta que vuelve', a
     const events = []
     const c = new WebSocketProxyClient({
       url: 'wss://x', enableWebRTC: false, autoReconnect: true,
-      reconnectDelay: 20, maxReconnectAttempts: 50, enableHeartbeat: false
+      reconnectDelay: 20, reconnectMaxDelay: 20, maxReconnectAttempts: 50, enableHeartbeat: false
     })
     for (const e of ['connect', 'disconnect', 'reconnecting', 'reconnect_failed']) c.on(e, () => events.push(e))
     await c.connect()
@@ -106,7 +106,7 @@ test('un `connect()` inicial que falla NO deja un bucle de fondo: se rechaza y y
     const events = []
     const c = new WebSocketProxyClient({
       url: 'wss://x', enableWebRTC: false, autoReconnect: true,
-      reconnectDelay: 20, maxReconnectAttempts: 50, enableHeartbeat: false
+      reconnectDelay: 20, reconnectMaxDelay: 20, maxReconnectAttempts: 50, enableHeartbeat: false
     })
     c.on('reconnecting', () => events.push('reconnecting'))
     await c.connect().then(() => null, () => null)
@@ -154,7 +154,7 @@ test('un reintento que se queda colgado al abrir se abandona y se vuelve a inten
     const events = []
     const c = new WebSocketProxyClient({
       url: 'wss://x', enableWebRTC: false, autoReconnect: true,
-      reconnectDelay: 20, maxReconnectAttempts: 50, enableHeartbeat: false, connectTimeout: 60
+      reconnectDelay: 20, reconnectMaxDelay: 20, maxReconnectAttempts: 50, enableHeartbeat: false, connectTimeout: 60
     })
     for (const e of ['connect', 'reconnecting']) c.on(e, () => events.push(e))
     c.on('error', (e) => events.push('error:' + e.type))
@@ -203,4 +203,24 @@ test('un `connect()` inicial colgado se rechaza con CONNECT_TIMEOUT y no reinten
     assert.equal(retries, 0)
     c.close()
   })
+})
+
+/**
+ * LOS QUE SE CAYERON JUNTOS NO VUELVEN JUNTOS.
+ *
+ * Al reiniciarse el proxio, todos sus clientes pierden el socket en el mismo instante. Con
+ * una espera fija de 3 s volvían todos en el mismo segundo, y el proxio identifica unas
+ * 2.500 conexiones por segundo (medido el 2026-10-25): con 100.000 bóvedas, ~40 s saturado.
+ */
+test('la espera entre reintentos tiene un mínimo, crece con cada fallo y se reparte al azar', () => {
+  const c = new WebSocketProxyClient({ url: 'wss://x', enableWebRTC: false, enableHeartbeat: false })
+  const sample = (attempt) => Array.from({ length: 2000 }, () => c._reconnectWait(attempt))
+  const windows = { 1: 3000, 2: 6000, 3: 12000, 4: 24000, 5: 30000, 12: 30000 }
+  for (const [attempt, window] of Object.entries(windows)) {
+    const waits = sample(Number(attempt))
+    assert.ok(Math.min(...waits) >= 3000, `intento ${attempt}: esperó menos que el mínimo`)
+    assert.ok(Math.max(...waits) <= 3000 + window, `intento ${attempt}: se pasó de la ventana`)
+    // Repartido de verdad: en 2.000 tiradas el rango cubre casi toda la ventana.
+    assert.ok(Math.max(...waits) - Math.min(...waits) > window * 0.9, `intento ${attempt}: no se repartió`)
+  }
 })
