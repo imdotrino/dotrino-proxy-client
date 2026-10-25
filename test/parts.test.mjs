@@ -118,7 +118,7 @@ test('una parte con forma mala se dice, no desaparece', async () => {
 test('el canal directo espera a que su búfer baje antes de mandar la siguiente parte', async () => {
   const m = new WebRTCManager({ getSelfToken: () => 'A', signalSend: () => {}, deliverMessage: () => {}, emit: () => {} })
   const dc = { readyState: 'open', bufferedAmount: 5 * 1024 * 1024, sent: [], send (s) { this.sent.push(s) } }
-  m.peers.set('B', { remote: 'B', dc })
+  m.peers.set('B', { remote: 'B', dc, pc: { connectionState: 'connected' } })
   const p = m.sendDirect('B', 'parte')
   await new Promise((r) => setTimeout(r, 40))
   assert.equal(dc.sent.length, 0, 'con el búfer lleno, espera')

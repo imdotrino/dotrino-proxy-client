@@ -41,7 +41,7 @@ class FakePC {
       queueMicrotask(() => this.ondatachannel?.({ channel: dc }))
     } else {
       this.signalingState = 'stable'
-      queueMicrotask(() => { this.dc.open(); this.dc.peer.open() })
+      queueMicrotask(() => { this.connectionState = 'connected'; d.pc.connectionState = 'connected'; this.dc.open(); this.dc.peer.open() })
     }
   }
 

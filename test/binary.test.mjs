@@ -194,7 +194,7 @@ test('the direct channel carries bytes, and an ArrayBuffer is delivered as bytes
   const delivered = []
   const m = new WebRTCManager({ getSelfToken: () => 'A', signalSend: () => {}, deliverMessage: (from, p) => delivered.push(p), emit: () => {} })
   const dc = { readyState: 'open', bufferedAmount: 0, sent: [], send (s) { this.sent.push(s) } }
-  const peer = { remote: 'B' }
+  const peer = { remote: 'B', pc: { connectionState: 'connected' } }
   m.peers.set('B', peer)
   m._attachDC(peer, dc)
   assert.equal(dc.binaryType, 'arraybuffer')
