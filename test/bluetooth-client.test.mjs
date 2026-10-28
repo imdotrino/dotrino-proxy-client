@@ -86,3 +86,22 @@ test('sin la opción, no hay Bluetooth y la señalización no sube a la app', as
   assert.throws(() => c.announceBluetooth('pair', 'x'), { code: 'no-bluetooth' })
   await assert.rejects(c.discoverBluetooth({ kind: 'pair' }), { code: 'no-bluetooth' })
 })
+
+// Cerrar mientras el Bluetooth arranca: el stop() de close() no ve un adaptador que todavía no
+// está, y antes quedaba encendido (y en Node, con el bus de sistema abierto, el proceso no
+// terminaba: las pruebas de la bóveda se colgaron horas en CI).
+test('cerrar mientras arranca el Bluetooth lo apaga al terminar de arrancar', async () => {
+  const air = new FakeAir()
+  const adapter = air.adapter('dev-slow')
+  const start = adapter.start.bind(adapter)
+  let stopped = 0
+  adapter.start = async (s) => { await sleep(30); return start(s) }
+  const stop = adapter.stop?.bind(adapter)
+  adapter.stop = async () => { stopped++; return stop?.() }
+  const c = new WebSocketProxyClient({ url: 'ws://x', enableWebRTC: false, autoReconnect: false, bluetooth: adapter })
+  const p = c._prepareBluetooth()
+  c.close()
+  await p
+  assert.equal(c.bluetoothAvailable, false, 'no queda encendido')
+  assert.equal(stopped, 1, 'y el adaptador se apagó')
+})

@@ -302,7 +302,7 @@ export class DBusConnection {
     await this.call({ destination: 'org.freedesktop.DBus', path: '/org/freedesktop/DBus', iface: 'org.freedesktop.DBus', member: 'AddMatch', signature: 's', body: [rule] })
   }
 
-  close () { try { this.socket.end() } catch (_) {} }
+  close () { try { this.socket.destroy() } catch (_) {} }
 
   _send (m) {
     if (this.closed) throw new DBusError('org.freedesktop.DBus.Error.Disconnected', 'bus closed')
@@ -363,6 +363,14 @@ export async function openSystemBus () {
   const m = /unix:path=([^,;]+)/.exec(addr)
   if (!m || !fs.existsSync(m[1])) return null
   const socket = net.createConnection(m[1])
+  // El bus no puede retener el proceso: el Bluetooth acompaña a lo que esté vivo por otra cosa
+  // (la conexión al proxio). Con él retenido, una prueba que ya cerró todo no terminaba nunca.
+  socket.unref()
+  const conn = await withSetupTimeout(socket, openOn(socket))
+  return conn
+}
+
+async function openOn (socket) {
   await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject) })
   const uid = String(process.getuid())
   const hex = [...uid].map((c) => c.charCodeAt(0).toString(16)).join('')
@@ -382,4 +390,20 @@ export async function openSystemBus () {
   const [name] = await conn.call({ destination: 'org.freedesktop.DBus', path: '/org/freedesktop/DBus', iface: 'org.freedesktop.DBus', member: 'Hello' })
   conn.name = name
   return conn
+}
+
+const SETUP_TIMEOUT_MS = 5_000
+
+/** Entrar en el bus tiene tope: un saludo que no contesta no deja el socket abierto para siempre. */
+async function withSetupTimeout (socket, p) {
+  let t
+  try {
+    return await Promise.race([p, new Promise((resolve, reject) => {
+      t = setTimeout(() => reject(new DBusError('org.freedesktop.DBus.Error.Timeout', `the system bus did not answer in ${SETUP_TIMEOUT_MS} ms`)), SETUP_TIMEOUT_MS)
+      t.unref?.()
+    })])
+  } catch (e) {
+    socket.destroy()
+    throw e
+  } finally { clearTimeout(t) }
 }

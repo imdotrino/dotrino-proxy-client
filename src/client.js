@@ -276,7 +276,10 @@ export class WebSocketProxyClient {
         adapter = await openBluez()
         if (!adapter) return
       }
+      // Cerrado mientras se abría el bus: el stop() de close() no lo vio, así que se cierra aquí.
+      if (this._closed) { if (this._bleOption === true) await adapter.stop().catch(() => {}); return }
       await this._ble.start(adapter)
+      if (this._closed) await this._ble.stop().catch(() => {})
     })().catch((e) => {
       this._emit('error', { type: 'bluetooth_unavailable', error: e, code: e?.code || null })
     }).finally(() => { this._bleStarting = null })
@@ -371,6 +374,7 @@ export class WebSocketProxyClient {
   }
 
   connect () {
+    this._closed = false
     this._prepareBluetooth()
     return new Promise((resolve, reject) => {
       if (this._connected) return resolve(this.token)
@@ -383,6 +387,7 @@ export class WebSocketProxyClient {
   }
 
   close () {
+    this._closed = true
     this.autoReconnect = false
     unregisterTransport(this)
     if (this._reconnectTimer) {
