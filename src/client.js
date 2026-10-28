@@ -375,6 +375,7 @@ export class WebSocketProxyClient {
 
   connect () {
     this._closed = false
+    this._rtc?.reopen()
     this._prepareBluetooth()
     return new Promise((resolve, reject) => {
       if (this._connected) return resolve(this.token)
