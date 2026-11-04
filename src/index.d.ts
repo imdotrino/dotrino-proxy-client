@@ -338,6 +338,10 @@ export class WebSocketProxyClient {
   announceEncPub (args: { publickey: string; encPub: string; sign: SignFn }): Promise<string>
   /** An identity's encryption key, verified. Never returns null: it resolves or throws. */
   encPubOf (publickey: string): Promise<string>
+  /** Las actas de esa cuenta que guarda el proxio con `seq` > `sinceSeq` (websocket-proxy ≥ 1.10.0). No son de confianza por venir de aquí: se adoptan solo si encadenan. */
+  getActas (profileId: string, opts?: { sinceSeq?: number }): Promise<object[]>
+  /** Le deja al proxio un acta de la cuenta; `stored:false` = ya la tenía o tiene más nuevas. */
+  putActa (acta: object): Promise<{ stored: boolean }>
   /** Take in a key that already comes signed by its owner (from an invite, a channel). */
   learnEncPub (statement: EncPubStatement, args: { publickey: string }): Promise<string>
   /** Forget what was learnt about an identity (it rotated its key), or about everyone. */

@@ -1103,6 +1103,43 @@ export class WebSocketProxyClient {
     return promise
   }
 
+  /**
+   * LAS ÚLTIMAS ACTAS DE UNA CUENTA que guarda el proxio (websocket-proxy ≥ 1.10.0), con `seq`
+   * mayor que `sinceSeq`, de la más nueva a la más vieja. Sirve para saber si la tuya va atrás
+   * sin despertar a la bóveda.
+   *
+   * NO SON DE CONFIANZA por venir de aquí: el proxio solo comprobó que las selló su cuenta.
+   * Quien las use las adopta SOLO si encadenan desde la que ya tiene de confianza. Lista vacía
+   * es «el proxio no tiene ninguna más nueva», no «no existe»: la bóveda sigue mandando.
+   *
+   * Lanza `no-acta-cache` si el proxio dice que no sabe de esto (es viejo).
+   */
+  async getActas (profileId, { sinceSeq } = {}) {
+    if (typeof profileId !== 'string' || !profileId) throw errorWithCode('getActas: missing profileId', 'bad-input')
+    this._needActaCache()
+    const res = await this._request({ type: 'acta-get', profileId, ...(Number.isInteger(sinceSeq) ? { sinceSeq } : {}) }, 'acta-get')
+    return Array.isArray(res.actas) ? res.actas : []
+  }
+
+  /**
+   * Le deja al proxio un acta de la cuenta, para que otros aparatos se enteren sin preguntar
+   * a la bóveda. Devuelve `{ stored }`: `false` es que ya la tenía o tiene más nuevas.
+   * Lanza `bad-acta` si no la selló su cuenta y `no-acta-cache` si el proxio es viejo.
+   */
+  async putActa (acta) {
+    if (!acta || typeof acta !== 'object') throw errorWithCode('putActa: missing acta', 'bad-input')
+    this._needActaCache()
+    const res = await this._request({ type: 'acta-put', acta }, 'acta-put')
+    return { stored: res.stored === true }
+  }
+
+  _needActaCache () {
+    // Un proxio que no manda `caps` es de antes de que existieran: se pregunta igual.
+    if (Array.isArray(this.caps) && !this.caps.includes('acta-cache')) {
+      throw errorWithCode(`this proxy (${this.url}) does not keep records: it needs websocket-proxy >= 1.10.0`, 'no-acta-cache')
+    }
+  }
+
   async _lookupEncPub (publickey) {
     // EL CAMINO MÁS DIRECTO PRIMERO. Si la app comparte acta con el destinatario, la llave
     // ya la tiene en la mano y firmada por el master: preguntársela a un servidor sería
@@ -1975,6 +2012,8 @@ export class WebSocketProxyClient {
       case 'pair-redeem':
       case 'encpub-announced':
       case 'enc-lookup':
+      case 'acta-get':
+      case 'acta-put':
         this._resolvePending(data, type)
         break
       case 'error':
