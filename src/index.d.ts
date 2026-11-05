@@ -48,6 +48,12 @@ export interface WebSocketProxyClientOptions {
    * it only its own queued messages. a-z, 0-9 and `-`, up to 32. Without it: everything.
    */
   app?: string
+  /** Application-level ping to detect half-open sockets. Default true. */
+  enableHeartbeat?: boolean
+  /** Ms between pings. Default 20000. */
+  heartbeatInterval?: number
+  /** Ms to wait for any traffic after a ping before reconnecting. Default 8000. */
+  heartbeatTimeout?: number
 }
 
 /** A Bluetooth adapter: the contract of `src/ble/manager.js`. */
@@ -197,6 +203,8 @@ export interface SchedulePushOptions {
 
 export interface ScheduledPush {
   jobId: number
+  /** La app en la que suena (proxio ≥ 1.9.0); null si se programó sin app. */
+  app: string | null
   nextFire: number
   cron: string | null
   tz: string | null
@@ -270,6 +278,8 @@ export type ChannelTokens = string[] & { waking?: true }
 
 export class WebSocketProxyClient {
   constructor (options?: WebSocketProxyClientOptions)
+  /** URL of the proxy this client talks to. */
+  url: string
   readonly isConnected: boolean
   token: string | null
   /** The proxy node this connection landed on (set on `connected`; undefined before). */
@@ -376,10 +386,10 @@ export class WebSocketProxyClient {
   forgetToken (token?: string | null): void
   /** My own identity on the wire, as `identify` bound it. */
   readonly myPublickey: string | null
-  /** What this proxy says it can do, from the `connected` frame. Null on older proxies. */
-  readonly caps: string[] | null
-  /** The proxy's wire protocol number. Null on proxies from before it was announced. */
-  readonly protocol: number | null
+  /** What this proxy says it can do, from the `connected` frame. Null on older proxies; undefined before connecting. */
+  readonly caps?: string[] | null
+  /** The proxy's wire protocol number. Null on proxies from before it was announced; undefined before connecting. */
+  readonly protocol?: number | null
   identify (envelope: { data: any; signature: string; cert?: any; acta?: any; sign?: (data: any) => Promise<any> }): Promise<{ publickey: string; queued_delivered: number }>
   /** PARA QUIÉN firmamos cuando le hablamos a este proxio: la URL a la que estamos conectados. */
   readonly audience: string

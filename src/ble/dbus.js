@@ -26,26 +26,61 @@ const F_DESTINATION = 6
 const F_SENDER = 7
 const F_SIGNATURE = 8
 
+/**
+ * Un valor de D-Bus. Su forma la decide la firma que lo acompaña, que se lee en tiempo de
+ * ejecución: por eso no hay un tipo estático más preciso.
+ * @typedef {any} DBusValue
+ */
+
+/**
+ * Un mensaje de D-Bus, ya leído o por escribir.
+ * @typedef {{
+ *   type: number, flags?: number, serial: number,
+ *   path?: string, iface?: string, member?: string, error?: string,
+ *   replySerial?: number, destination?: string, sender?: string,
+ *   signature?: string, body?: DBusValue[],
+ * }} DBusMessage
+ */
+
+/**
+ * Un mensaje ya leído del bus: lleva siempre banderas, firma y cuerpo.
+ * @typedef {DBusMessage & { flags: number, signature: string, body: DBusValue[] }} ReceivedMessage
+ */
+
+/**
+ * Lo que contesta un método exportado.
+ * @typedef {(args: DBusValue[], msg: ReceivedMessage) => Promise<{ signature?: string, body?: DBusValue[] } | void> | { signature?: string, body?: DBusValue[] } | void} DBusMethod
+ */
+
 /** Un valor con su tipo, para los `v` (variante). */
 export class Variant {
+  /** @param {string} sig @param {DBusValue} value */
   constructor (sig, value) { this.sig = sig; this.value = value }
 }
+/** @param {string} sig @param {DBusValue} value @returns {Variant} */
 export const variant = (sig, value) => new Variant(sig, value)
 
 export class DBusError extends Error {
+  /** @param {string} name @param {string} [message] */
   constructor (name, message) { super(`${name}: ${message || ''}`); this.name = 'DBusError'; this.dbusName = name; this.code = 'dbus-error' }
 }
 
 // ---------- firmas ----------
 
-/** Parte una firma en tipos completos: 'sa{sv}as' → ['s', 'a{sv}', 'as']. */
+/**
+ * Parte una firma en tipos completos: 'sa{sv}as' → ['s', 'a{sv}', 'as'].
+ * @param {string} sig
+ * @returns {string[]}
+ */
 export function splitSig (sig) {
+  /** @type {string[]} */
   const out = []
   let i = 0
   while (i < sig.length) { const end = typeEnd(sig, i); out.push(sig.slice(i, end)); i = end }
   return out
 }
 
+/** @param {string} sig @param {number} i @returns {number} */
 function typeEnd (sig, i) {
   const c = sig[i]
   if (c === 'a') return typeEnd(sig, i + 1)
@@ -61,32 +96,48 @@ function typeEnd (sig, i) {
   return i + 1
 }
 
+/** @type {Record<string, number>} */
 const ALIGN = { y: 1, b: 4, n: 2, q: 2, i: 4, u: 4, x: 8, t: 8, d: 8, s: 4, o: 4, g: 1, a: 4, '(': 8, '{': 8, v: 1, h: 4 }
 
 // ---------- escribir ----------
 
 class Writer {
   constructor () { this.buf = new Uint8Array(256); this.view = new DataView(this.buf.buffer); this.pos = 0 }
+  /** @param {number} n */
   room (n) {
     if (this.pos + n <= this.buf.length) return
     let len = this.buf.length * 2
     while (len < this.pos + n) len *= 2
     const b = new Uint8Array(len); b.set(this.buf); this.buf = b; this.view = new DataView(b.buffer)
   }
+  /** @param {number} n */
   align (n) { const p = (n - (this.pos % n)) % n; this.room(p); this.pos += p }
+  /** @param {number} v */
   u8 (v) { this.room(1); this.buf[this.pos++] = v }
+  /** @param {number} v */
   u16 (v) { this.align(2); this.room(2); this.view.setUint16(this.pos, v, true); this.pos += 2 }
+  /** @param {number} v */
   i16 (v) { this.align(2); this.room(2); this.view.setInt16(this.pos, v, true); this.pos += 2 }
+  /** @param {number} v */
   u32 (v) { this.align(4); this.room(4); this.view.setUint32(this.pos, v, true); this.pos += 4 }
+  /** @param {number} v */
   i32 (v) { this.align(4); this.room(4); this.view.setInt32(this.pos, v, true); this.pos += 4 }
+  /** @param {number | bigint} v */
   u64 (v) { this.align(8); this.room(8); this.view.setBigUint64(this.pos, BigInt(v), true); this.pos += 8 }
+  /** @param {number | bigint} v */
   i64 (v) { this.align(8); this.room(8); this.view.setBigInt64(this.pos, BigInt(v), true); this.pos += 8 }
+  /** @param {number} v */
   f64 (v) { this.align(8); this.room(8); this.view.setFloat64(this.pos, v, true); this.pos += 8 }
+  /** @param {Uint8Array} b */
   bytes (b) { this.room(b.length); this.buf.set(b, this.pos); this.pos += b.length }
+  /** @param {string} s */
   str (s) { const b = new TextEncoder().encode(s); this.u32(b.length); this.bytes(b); this.u8(0) }
+  /** @param {string} s */
   sig (s) { const b = new TextEncoder().encode(s); this.u8(b.length); this.bytes(b); this.u8(0) }
+  /** @returns {Uint8Array} */
   result () { return this.buf.slice(0, this.pos) }
 
+  /** @param {string} sig @param {DBusValue} v @returns {void} */
   write (sig, v) {
     const c = sig[0]
     switch (c) {
@@ -109,7 +160,7 @@ class Writer {
       case '(': {
         this.align(8)
         const inner = splitSig(sig.slice(1, -1))
-        inner.forEach((t, k) => this.write(t, v[k]))
+        inner.forEach((t, /** @type {number} */ k) => this.write(t, v[k]))
         return
       }
       case 'a': {
@@ -138,12 +189,16 @@ class Writer {
 // ---------- leer ----------
 
 class Reader {
+  /** @param {Uint8Array} bytes @param {boolean} little @param {number} [base] */
   constructor (bytes, little, base = 0) {
     this.buf = bytes; this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     this.le = little; this.pos = base
   }
+  /** @param {number} n */
   align (n) { this.pos += (n - (this.pos % n)) % n }
+  /** @returns {number} */
   u8 () { return this.buf[this.pos++] }
+  /** @param {string} sig @returns {DBusValue} */
   read (sig) {
     const c = sig[0]
     const v = this.view
@@ -168,7 +223,7 @@ class Reader {
         const s = new TextDecoder().decode(this.buf.subarray(this.pos, this.pos + len)); this.pos += len + 1
         return s
       }
-      case 'v': { const s = this.read('g'); return new Variant(s, this.read(s)) }
+      case 'v': { const s = /** @type {string} */ (this.read('g')); return new Variant(s, this.read(s)) }
       case '(': { this.align(8); return splitSig(sig.slice(1, -1)).map((t) => this.read(t)) }
       case 'a': {
         this.align(4)
@@ -179,10 +234,12 @@ class Reader {
         if (elem === 'y') { const b = this.buf.slice(this.pos, end); this.pos = end; return b }
         if (elem[0] === '{') {
           const [kt, vt] = splitSig(elem.slice(1, -1))
+          /** @type {Record<string, DBusValue>} */
           const out = {}
           while (this.pos < end) { this.align(8); const k = this.read(kt); out[k] = this.read(vt) }
           return out
         }
+        /** @type {DBusValue[]} */
         const out = []
         while (this.pos < end) out.push(this.read(elem))
         return out
@@ -192,22 +249,36 @@ class Reader {
   }
 }
 
-/** Saca el valor de las variantes, recursivo: lo que BlueZ manda en a{sv} queda en plano. */
+/**
+ * Saca el valor de las variantes, recursivo: lo que BlueZ manda en a{sv} queda en plano.
+ * @param {DBusValue} v
+ * @returns {DBusValue}
+ */
 export function plain (v) {
   if (v instanceof Variant) return plain(v.value)
   if (v instanceof Uint8Array) return v
   if (Array.isArray(v)) return v.map(plain)
-  if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = plain(v[k]); return o }
+  if (v && typeof v === 'object') {
+    /** @type {Record<string, DBusValue>} */
+    const o = {}
+    for (const k of Object.keys(v)) o[k] = plain(v[k])
+    return o
+  }
   return v
 }
 
 // ---------- mensajes ----------
 
+/**
+ * @param {DBusMessage} m
+ * @returns {Uint8Array}
+ */
 export function encodeMessage ({ type, flags = 0, serial, path, iface, member, error, replySerial, destination, signature = '', body = [] }) {
   const bw = new Writer()
   const types = signature ? splitSig(signature) : []
   types.forEach((t, k) => bw.write(t, body[k]))
   const bodyBytes = bw.result()
+  /** @type {Array<[number, Variant]>} */
   const fields = []
   if (path) fields.push([F_PATH, variant('o', path)])
   if (iface) fields.push([F_INTERFACE, variant('s', iface)])
@@ -227,7 +298,11 @@ export function encodeMessage ({ type, flags = 0, serial, path, iface, member, e
   return out
 }
 
-/** Lee un mensaje completo del principio de `buf`. Devuelve `{ msg, size }` o null si falta. */
+/**
+ * Lee un mensaje completo del principio de `buf`. Devuelve `{ msg, size }` o null si falta.
+ * @param {Uint8Array} buf
+ * @returns {{ msg: ReceivedMessage, size: number } | null}
+ */
 export function decodeMessage (buf) {
   if (buf.length < 16) return null
   const little = buf[0] === 0x6c
@@ -240,13 +315,14 @@ export function decodeMessage (buf) {
   if (buf.length < size) return null
   const r = new Reader(buf.subarray(0, size), little, 12)
   const fields = r.read('a(yv)')
+  /** @type {Record<number, DBusValue>} */
   const f = {}
   for (const [code, v] of fields) f[code] = v.value
   const msg = {
     type: buf[1], flags: buf[2], serial: view.getUint32(8, little),
     path: f[F_PATH], iface: f[F_INTERFACE], member: f[F_MEMBER], error: f[F_ERROR],
     replySerial: f[F_REPLY_SERIAL], destination: f[F_DESTINATION], sender: f[F_SENDER],
-    signature: f[F_SIGNATURE] || '', body: [],
+    signature: f[F_SIGNATURE] || '', body: /** @type {DBusValue[]} */ ([]),
   }
   if (msg.signature) {
     const br = new Reader(buf.subarray(bodyStart, size), little, 0)
@@ -264,13 +340,17 @@ export class DBusConnection {
     /** @type {string|null} el nombre único en el bus (`Hello`) */
     this.name = null
     this.serial = 1
+    /** @type {Map<number, { resolve: (body: DBusValue[]) => void, reject: (e: Error) => void }>} */
     this.pending = new Map()
-    this.objects = new Map()      // path -> { iface -> { method(args, msg) -> { signature, body } } }
+    /** @type {Map<string, Record<string, Record<string, DBusMethod>>>} path -> { iface -> { method(args, msg) -> { signature, body } } } */
+    this.objects = new Map()
+    /** @type {Set<(msg: ReceivedMessage) => void>} */
     this.signalHandlers = new Set()
     this.buf = new Uint8Array(0)
     this.closed = false
+    /** @type {(() => void) | null} */
     this.onClose = null
-    socket.on('data', (d) => this._data(d))
+    socket.on('data', (/** @type {Uint8Array} */ d) => this._data(d))
     socket.on('close', () => {
       this.closed = true
       for (const p of this.pending.values()) p.reject(new DBusError('org.freedesktop.DBus.Error.Disconnected', 'bus closed'))
@@ -279,36 +359,47 @@ export class DBusConnection {
     })
   }
 
-  /** Llama a un método y espera su respuesta. Devuelve el cuerpo (array). */
+  /**
+   * Llama a un método y espera su respuesta. Devuelve el cuerpo (array).
+   * @param {{ destination: string, path: string, iface: string, member: string, signature?: string, body?: DBusValue[] }} m
+   * @returns {Promise<DBusValue[]>}
+   */
   call ({ destination, path, iface, member, signature = '', body = [] }) {
     const serial = this.serial++
-    return new Promise((resolve, reject) => {
+    return new Promise(/** @param {(body: DBusValue[]) => void} resolve @param {(e: Error) => void} reject */ (resolve, reject) => {
       this.pending.set(serial, { resolve, reject })
       this._send({ type: TYPE_CALL, serial, destination, path, iface, member, signature, body })
     })
   }
 
+  /** @param {{ path: string, iface: string, member: string, signature?: string, body?: DBusValue[] }} m */
   signal ({ path, iface, member, signature = '', body = [] }) {
     this._send({ type: TYPE_SIGNAL, serial: this.serial++, path, iface, member, signature, body })
   }
 
   /** Exporta un objeto: `handlers[iface][member] = async (args, msg) => ({ signature, body })`. */
+  /** @param {string} path @param {Record<string, Record<string, DBusMethod>>} handlers */
   export (path, handlers) { this.objects.set(path, handlers) }
+  /** @param {string} path */
   unexport (path) { this.objects.delete(path) }
 
+  /** @param {(msg: ReceivedMessage) => void} fn @returns {() => boolean} */
   onSignal (fn) { this.signalHandlers.add(fn); return () => this.signalHandlers.delete(fn) }
 
+  /** @param {string} rule */
   async addMatch (rule) {
     await this.call({ destination: 'org.freedesktop.DBus', path: '/org/freedesktop/DBus', iface: 'org.freedesktop.DBus', member: 'AddMatch', signature: 's', body: [rule] })
   }
 
   close () { try { this.socket.destroy() } catch (_) {} }
 
+  /** @param {DBusMessage} m */
   _send (m) {
     if (this.closed) throw new DBusError('org.freedesktop.DBus.Error.Disconnected', 'bus closed')
     this.socket.write(encodeMessage(m))
   }
 
+  /** @param {Uint8Array} chunk */
   _data (chunk) {
     const b = new Uint8Array(this.buf.length + chunk.length)
     b.set(this.buf); b.set(chunk, this.buf.length)
@@ -321,30 +412,34 @@ export class DBusConnection {
     }
   }
 
+  /** @param {ReceivedMessage} msg */
   _dispatch (msg) {
     if (msg.type === TYPE_RETURN || msg.type === TYPE_ERROR) {
-      const p = this.pending.get(msg.replySerial)
+      const p = this.pending.get(/** @type {number} */ (msg.replySerial))
       if (!p) return
-      this.pending.delete(msg.replySerial)
+      this.pending.delete(/** @type {number} */ (msg.replySerial))
       if (msg.type === TYPE_RETURN) p.resolve(msg.body)
-      else p.reject(new DBusError(msg.error, msg.body[0]))
+      else p.reject(new DBusError(/** @type {string} */ (msg.error), msg.body[0]))
       return
     }
     if (msg.type === TYPE_SIGNAL) { for (const h of this.signalHandlers) { try { h(msg) } catch (_) {} } return }
     if (msg.type === TYPE_CALL) this._incomingCall(msg)
   }
 
+  /** @param {ReceivedMessage} msg */
   async _incomingCall (msg) {
+    /** @param {Omit<DBusMessage, 'serial'>} m */
     const reply = (m) => { if (!(msg.flags & FLAG_NO_REPLY)) this._send({ ...m, serial: this.serial++, replySerial: msg.serial, destination: msg.sender }) }
-    const obj = this.objects.get(msg.path)
-    const fn = obj?.[msg.iface]?.[msg.member]
+    const obj = this.objects.get(/** @type {string} */ (msg.path))
+    const fn = obj?.[/** @type {string} */ (msg.iface)]?.[/** @type {string} */ (msg.member)]
     if (!fn) {
       return reply({ type: TYPE_ERROR, error: 'org.freedesktop.DBus.Error.UnknownMethod', signature: 's', body: [`no ${msg.iface}.${msg.member} at ${msg.path}`] })
     }
     try {
       const r = (await fn(msg.body, msg)) || {}
       reply({ type: TYPE_RETURN, signature: r.signature || '', body: r.body || [] })
-    } catch (e) {
+    } catch (err) {
+      const e = /** @type {any} */ (err)
       reply({ type: TYPE_ERROR, error: e.dbusName || 'org.bluez.Error.Failed', signature: 's', body: [String(e.message || e)] })
     }
   }
@@ -353,6 +448,8 @@ export class DBusConnection {
 /**
  * Abre el bus del SISTEMA (donde vive BlueZ). `null` si no hay bus en esta máquina: eso no es
  * un fallo, es una máquina sin BlueZ. Si hay bus y no deja entrar, lanza.
+ *
+ * @returns {Promise<DBusConnection | null>}
  */
 export async function openSystemBus () {
   const netMod = 'node:net'
@@ -370,12 +467,14 @@ export async function openSystemBus () {
   return conn
 }
 
+/** @param {import('node:net').Socket} socket @returns {Promise<DBusConnection>} */
 async function openOn (socket) {
   await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject) })
-  const uid = String(process.getuid())
+  const uid = String(/** @type {() => number} */ (process.getuid)())
   const hex = [...uid].map((c) => c.charCodeAt(0).toString(16)).join('')
-  const line = await new Promise((resolve, reject) => {
+  const line = await new Promise(/** @param {(line: string) => void} resolve @param {(e: Error) => void} reject */ (resolve, reject) => {
     let got = ''
+    /** @param {Buffer} d */
     const onData = (d) => {
       got += d.toString('latin1')
       if (got.includes('\r\n')) { socket.off('data', onData); resolve(got) }
@@ -395,10 +494,17 @@ async function openOn (socket) {
 const SETUP_TIMEOUT_MS = 5_000
 
 /** Entrar en el bus tiene tope: un saludo que no contesta no deja el socket abierto para siempre. */
+/**
+ * @template T
+ * @param {import('node:net').Socket} socket
+ * @param {Promise<T>} p
+ * @returns {Promise<T>}
+ */
 async function withSetupTimeout (socket, p) {
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
   let t
   try {
-    return await Promise.race([p, new Promise((resolve, reject) => {
+    return await Promise.race([p, new Promise(/** @param {(v: never) => void} resolve @param {(e: Error) => void} reject */ (resolve, reject) => {
       t = setTimeout(() => reject(new DBusError('org.freedesktop.DBus.Error.Timeout', `the system bus did not answer in ${SETUP_TIMEOUT_MS} ms`)), SETUP_TIMEOUT_MS)
       t.unref?.()
     })])

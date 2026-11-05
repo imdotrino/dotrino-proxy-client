@@ -1,6 +1,6 @@
 {
   "name": "@dotrino/proxy-client",
-  "version": "0.47.0",
+  "version": "0.47.1",
   "description": "Cliente WebSocket para el proxy de Dotrino (tokens, canales, firma ECDSA, Web Push)",
   "type": "module",
   "main": "src/index.js",
@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit && tsc --noEmit -p tsconfig.shadowed.json && tsc --noEmit -p sw/tsconfig.json"
   },
   "keywords": [
     "websocket",

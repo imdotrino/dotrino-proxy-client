@@ -45,6 +45,14 @@ const SVC_HANDLE = 0x0400
 const CONNECT_TIMEOUT_MS = 15_000
 const DEFAULT_MTU = 23
 
+/** @typedef {import('./dbus.js').DBusConnection} DBusConnection */
+/** @typedef {import('./dbus.js').ReceivedMessage} ReceivedMessage */
+/** @typedef {import('./dbus.js').DBusValue} DBusValue */
+/** @typedef {import('../index.js').BluetoothAdapter} BluetoothAdapter */
+/** @typedef {Parameters<BluetoothAdapter['start']>[0]} PeripheralServer */
+/** @typedef {Awaited<ReturnType<BluetoothAdapter['connect']>>} CentralLink */
+
+/** @param {unknown} u */
 const lower = (u) => String(u).toLowerCase()
 
 /**
@@ -54,20 +62,23 @@ const lower = (u) => String(u).toLowerCase()
  * (`bluetoothAvailable` en false), que es lo que de verdad tienen. La bóveda con varios
  * perfiles en un proceso lo nota: el Bluetooth es del primero que arrancó.
  */
+/** @type {BluezAdapter | null} */
 let owner = null
 
+/** @returns {Promise<BluezAdapter | null>} */
 export async function openBluez () {
   if (typeof process === 'undefined' || process.platform !== 'linux') return null
   if (owner) return null
   const bus = await openSystemBus()
   if (!bus) return null
+  /** @type {Record<string, Record<string, DBusValue>>} */
   let objs
   try {
     [objs] = await bus.call({ destination: BLUEZ, path: '/', iface: OM, member: 'GetManagedObjects' })
   } catch (e) {
     bus.close()
     // Sin el servicio de BlueZ no hay Bluetooth: normal.
-    if (e.dbusName === 'org.freedesktop.DBus.Error.ServiceUnknown') return null
+    if (/** @type {{ dbusName?: string }} */ (e)?.dbusName === 'org.freedesktop.DBus.Error.ServiceUnknown') return null
     throw e
   }
   const path = Object.keys(objs).find((p) => {
@@ -80,16 +91,28 @@ export async function openBluez () {
   return owner
 }
 
+/** @implements {BluetoothAdapter} */
 class BluezAdapter {
+  /**
+   * @param {DBusConnection} bus
+   * @param {string} adapterPath
+   * @param {Record<string, Record<string, DBusValue>>} objs
+   */
   constructor (bus, adapterPath, objs) {
     this.bus = bus
     this.adapterPath = adapterPath
+    /** @type {PeripheralServer | null} */
     this.server = null
-    this.mtu = new Map()          // device -> MTU que dijo al escribirnos
+    /** @type {Map<string, number>} device -> MTU que dijo al escribirnos */
+    this.mtu = new Map()
     this.subscribed = false
-    this.devices = new Map()      // device -> { ours: bool } (lo que sabemos de los vistos)
-    this.valueHandlers = new Map() // ruta de la característica remota -> fn(bytes)
-    this.closeHandlers = new Map() // device -> Set(fn)
+    /** @type {Map<string, { ours: boolean }>} device -> lo que sabemos de los vistos */
+    this.devices = new Map()
+    /** @type {Map<string, (bytes: Uint8Array) => void>} ruta de la característica remota -> fn(bytes) */
+    this.valueHandlers = new Map()
+    /** @type {Map<string, Set<() => void>>} device -> Set(fn) */
+    this.closeHandlers = new Map()
+    /** @type {((device: { id: string }) => void) | null} */
     this.onFound = null
     this.registered = false
     for (const [p, ifs] of Object.entries(objs)) if (ifs[DEVICE]) this._learn(p, plain(ifs[DEVICE]))
@@ -98,17 +121,19 @@ class BluezAdapter {
 
   // ---------- periférico ----------
 
+  /** @param {PeripheralServer} server */
   async start (server) {
     this.server = server
     await this.bus.addMatch(`type='signal',sender='${BLUEZ}'`)
+    /** @param {string} uuid */
     const chr = (uuid) => ({
       [GATT_CHR]: {
-        ReadValue: ([opts]) => {
+        ReadValue: (/** @type {DBusValue[]} */ [opts]) => {
           const o = plain(opts)
           const all = uuid === HELLO_UUID ? server.hello() : uuid === BEACON_UUID ? server.beacon() : new Uint8Array(0)
           return { signature: 'ay', body: [all.subarray(o.offset || 0)] }
         },
-        WriteValue: ([value, opts]) => {
+        WriteValue: (/** @type {DBusValue[]} */ [value, opts]) => {
           if (uuid !== RX_UUID) throw Object.assign(new Error('not writable'), { dbusName: 'org.bluez.Error.NotPermitted' })
           const o = plain(opts)
           if (o.device && o.mtu) this.mtu.set(o.device, o.mtu)
@@ -128,7 +153,7 @@ class BluezAdapter {
       [ADV_IFACE]: { Release: () => ({}) },
       [PROPS]: {
         GetAll: () => ({ signature: 'a{sv}', body: [this._advProps()] }),
-        Get: ([, name]) => ({ signature: 'v', body: [this._advProps()[name]] }),
+        Get: (/** @type {DBusValue[]} */ [, name]) => ({ signature: 'v', body: [this._advProps()[name]] }),
       },
     })
     await this.bus.call({ destination: BLUEZ, path: this.adapterPath, iface: 'org.bluez.GattManager1', member: 'RegisterApplication', signature: 'oa{sv}', body: [APP, {}] })
@@ -154,6 +179,7 @@ class BluezAdapter {
    * `Discoverable` pone la bandera LE General Discoverable en el anuncio. Sin ella BlueZ anuncia
    * igual, pero iOS no lo enseña a ninguna app: el iPhone tenía el PC al lado y no lo veía.
    */
+  /** @returns {Record<string, import('./dbus.js').Variant>} */
   _advProps () {
     return { Type: variant('s', 'peripheral'), ServiceUUIDs: variant('as', [SERVICE_UUID]), Discoverable: variant('b', true) }
   }
@@ -167,6 +193,7 @@ class BluezAdapter {
     return (mtus.length ? Math.min(...mtus) : DEFAULT_MTU) - 3
   }
 
+  /** @param {string} _device @param {Uint8Array} bytes */
   async notify (_device, bytes) {
     if (!this.subscribed) throw new Error('bluez: nobody is subscribed to tx')
     this.bus.signal({ path: CHR[TX_UUID], iface: PROPS, member: 'PropertiesChanged', signature: 'sa{sv}as', body: [GATT_CHR, { Value: variant('ay', bytes) }, []] })
@@ -174,12 +201,14 @@ class BluezAdapter {
     await new Promise((r) => setImmediate(r))
   }
 
+  /** @param {string} device */
   async drop (device) {
     await this.bus.call({ destination: BLUEZ, path: device, iface: DEVICE, member: 'Disconnect' }).catch(() => {})
   }
 
   // ---------- central ----------
 
+  /** @param {(device: { id: string }) => void} onFound */
   async scan (onFound) {
     this.onFound = onFound
     await this.bus.call({
@@ -193,10 +222,16 @@ class BluezAdapter {
     }
   }
 
+  /**
+   * @param {{ id: string }} dev
+   * @returns {Promise<CentralLink>}
+   */
   async connect (dev) {
     const path = dev.id
+    /** @param {string} member @param {string} [iface] @param {string} [p] @param {string} [signature] @param {DBusValue[]} [body] */
     const call = (member, iface = DEVICE, p = path, signature = '', body = []) =>
       this.bus.call({ destination: BLUEZ, path: p, iface, member, signature, body })
+    /** @param {string} iface @param {string} name @param {string} [p] */
     const getProp = async (iface, name, p = path) => plain((await call('Get', PROPS, p, 'ss', [iface, name]))[0])
 
     // Si ya estábamos conectados (el otro es central de nosotros), el enlace es el mismo:
@@ -207,11 +242,12 @@ class BluezAdapter {
       await withTimeout(this._waitResolved(path), CONNECT_TIMEOUT_MS, () => wasConnected ? null : call('Disconnect').catch(() => {}))
     }
     const [objs] = await this.bus.call({ destination: BLUEZ, path: '/', iface: OM, member: 'GetManagedObjects' })
-    const svc = Object.keys(objs).find((p) => p.startsWith(path + '/') && objs[p][GATT_SVC] && lower(plain(objs[p][GATT_SVC]).UUID) === SERVICE_UUID)
+    const svc = Object.keys(objs).find((/** @type {string} */ p) => p.startsWith(path + '/') && objs[p][GATT_SVC] && lower(plain(objs[p][GATT_SVC]).UUID) === SERVICE_UUID)
     if (!svc) {
       if (!wasConnected) await call('Disconnect').catch(() => {})
       throw new Error('bluez: that device has no Dotrino service')
     }
+    /** @type {Record<string, string>} */
     const chars = {}
     let mtu = DEFAULT_MTU
     for (const p of Object.keys(objs)) {
@@ -223,6 +259,7 @@ class BluezAdapter {
     }
 
     let closed = false
+    /** @type {Set<() => void>} */
     const closeCbs = new Set()
     const fireClose = () => {
       if (closed) return
@@ -231,9 +268,11 @@ class BluezAdapter {
       this.closeHandlers.get(path)?.delete(fireClose)
       for (const cb of closeCbs) { try { cb() } catch (_) {} }
     }
-    if (!this.closeHandlers.has(path)) this.closeHandlers.set(path, new Set())
-    this.closeHandlers.get(path).add(fireClose)
+    let handlers = this.closeHandlers.get(path)
+    if (!handlers) { handlers = new Set(); this.closeHandlers.set(path, handlers) }
+    handlers.add(fireClose)
 
+    /** @param {string} uuid */
     const charPath = (uuid) => {
       const p = chars[uuid]
       if (!p) throw new Error('bluez: missing characteristic ' + uuid)
@@ -241,12 +280,12 @@ class BluezAdapter {
     }
     return {
       chunk: mtu - 3,
-      read: async (uuid) => (await call('ReadValue', GATT_CHR, charPath(uuid), 'a{sv}', [{}]))[0],
-      write: async (bytes) => {
+      read: async (/** @type {string} */ uuid) => (await call('ReadValue', GATT_CHR, charPath(uuid), 'a{sv}', [{}]))[0],
+      write: async (/** @type {Uint8Array} */ bytes) => {
         if (closed) throw new Error('bluez: link closed')
         await call('WriteValue', GATT_CHR, charPath(RX_UUID), 'aya{sv}', [bytes, { type: variant('s', 'request') }])
       },
-      subscribe: async (cb) => {
+      subscribe: async (/** @type {(bytes: Uint8Array) => void} */ cb) => {
         this.valueHandlers.set(charPath(TX_UUID), cb)
         await call('StartNotify', GATT_CHR, charPath(TX_UUID))
       },
@@ -256,12 +295,13 @@ class BluezAdapter {
         if (!wasConnected) await call('Disconnect').catch(() => {})
         fireClose()
       },
-      onClose: (cb) => closeCbs.add(cb),
+      onClose: (/** @type {() => void} */ cb) => closeCbs.add(cb),
     }
   }
 
+  /** @param {string} path @returns {Promise<void>} */
   _waitResolved (path) {
-    return new Promise((resolve) => {
+    return new Promise(/** @param {() => void} resolve */ (resolve) => {
       const off = this.bus.onSignal((m) => {
         if (m.path === path && m.member === 'PropertiesChanged' && m.body[0] === DEVICE && plain(m.body[1]).ServicesResolved) { off(); resolve() }
       })
@@ -270,6 +310,7 @@ class BluezAdapter {
 
   // ---------- señales ----------
 
+  /** @param {string} path @param {Record<string, DBusValue>} props */
   _learn (path, props) {
     const d = this.devices.get(path) || { ours: false }
     if (Array.isArray(props.UUIDs)) d.ours = props.UUIDs.map(lower).includes(SERVICE_UUID)
@@ -277,6 +318,7 @@ class BluezAdapter {
     return d
   }
 
+  /** @param {ReceivedMessage} m */
   _onSignal (m) {
     if (m.member === 'InterfacesAdded') {
       const [path, ifs] = m.body
@@ -290,17 +332,18 @@ class BluezAdapter {
     const [iface, changed] = m.body
     const ch = plain(changed)
     if (iface === GATT_CHR && ch.Value) {
-      this.valueHandlers.get(m.path)?.(ch.Value)
+      this.valueHandlers.get(/** @type {string} */ (m.path))?.(ch.Value)
       return
     }
     if (iface !== DEVICE) return
-    const d = this._learn(m.path, ch)
+    const devPath = /** @type {string} */ (m.path)
+    const d = this._learn(devPath, ch)
     if (ch.Connected === false) {
-      this.mtu.delete(m.path)
-      this.server?.onDisconnect(m.path)
-      for (const cb of [...(this.closeHandlers.get(m.path) || [])]) cb()
+      this.mtu.delete(devPath)
+      this.server?.onDisconnect(devPath)
+      for (const cb of [...(this.closeHandlers.get(devPath) || [])]) cb()
     }
-    if (d.ours && ch.RSSI != null) this.onFound?.({ id: m.path })
+    if (d.ours && ch.RSSI != null) this.onFound?.({ id: devPath })
   }
 
   async stop () {
@@ -314,11 +357,19 @@ class BluezAdapter {
   }
 }
 
+/**
+ * @template T
+ * @param {Promise<T>} p
+ * @param {number} ms
+ * @param {() => unknown} [onTimeout]
+ * @returns {Promise<T>}
+ */
 function withTimeout (p, ms, onTimeout) {
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
   let t
   return Promise.race([
     p.finally(() => clearTimeout(t)),
-    new Promise((resolve, reject) => {
+    new Promise(/** @param {(v: never) => void} resolve @param {(e: Error) => void} reject */ (resolve, reject) => {
       t = setTimeout(() => { Promise.resolve(onTimeout?.()).finally(() => reject(Object.assign(new Error('bluez: timed out'), { code: 'bluetooth-timeout' }))) }, ms)
       t.unref?.()
     }),

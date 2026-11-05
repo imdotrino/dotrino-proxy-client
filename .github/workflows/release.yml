@@ -39,6 +39,8 @@ jobs:
       - run: npm ci
 
       # LAS PRUEBAS ANTES DE PUBLICAR. Una versión que no pasa su suite no llega a npm.
+      # Y LOS TIPOS: `strict` sobre todo el JS del paquete y sus .d.ts públicos.
+      - run: npm run type-check
       - run: npm test
       # El registro de compatibilidad (dotrino-roadmap, CONVENCIONES §14): nada instalado en
       # una versión marcada rota ni por debajo de lo que exige la ficha. Con @latest, que trae

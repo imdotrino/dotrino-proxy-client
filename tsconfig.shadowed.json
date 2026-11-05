@@ -1,0 +1,6 @@
+{
+  "//": "index.js y lan/mdns.js tienen un .d.ts hermano, y con los dos en `include` tsc solo lee el .d.ts: aquí se comprueban los .js.",
+  "extends": "./tsconfig.json",
+  "include": [],
+  "files": ["src/index.js", "src/lan/mdns.js"]
+}

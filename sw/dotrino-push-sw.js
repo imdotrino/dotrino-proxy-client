@@ -19,12 +19,17 @@ const DEFAULT_TITLE = 'Dotrino'
 const DEFAULT_BODY = 'Tienes mensajes nuevos'
 const DEFAULT_URL = '/'
 
-self.addEventListener('push', (event) => {
+// `self` es el ServiceWorkerGlobalScope; los casts de abajo solo se lo dicen al chequeo de tipos.
+// No se guarda en una constante: este archivo se importa con `importScripts` en el SW de cada
+// app, y un nombre global de más chocaría con los suyos.
+
+;/** @type {ServiceWorkerGlobalScope} */ (/** @type {unknown} */ (self)).addEventListener('push', (event) => {
+  /** @type {{ title?: string, body?: string, tag?: string, url?: string }} */
   let payload = {}
   try { payload = event.data ? event.data.json() : {} } catch (_) { payload = {} }
 
   event.waitUntil((async () => {
-    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    const wins = await /** @type {ServiceWorkerGlobalScope} */ (/** @type {unknown} */ (self)).clients.matchAll({ type: 'window', includeUncontrolled: true })
     // Avisar a toda ventana abierta para que drene la cola del proxy.
     for (const c of wins) {
       try { c.postMessage({ type: 'cc-push-ring', payload }) } catch (_) {}
@@ -32,26 +37,27 @@ self.addEventListener('push', (event) => {
     const visible = wins.some(c => c.visibilityState === 'visible' || c.focused)
     // Si hay una ventana visible, no hace falta notificar.
     if (visible) return
-    await self.registration.showNotification(payload.title || DEFAULT_TITLE, {
+    await /** @type {ServiceWorkerGlobalScope} */ (/** @type {unknown} */ (self)).registration.showNotification(payload.title || DEFAULT_TITLE, /** @type {NotificationOptions & { renotify?: boolean }} */ ({
       body: payload.body || DEFAULT_BODY,
       tag: payload.tag || 'cc-ring',
       renotify: false,
       data: { url: payload.url || DEFAULT_URL }
-    })
+    }))
   })())
 })
 
-self.addEventListener('notificationclick', (event) => {
+;/** @type {ServiceWorkerGlobalScope} */ (/** @type {unknown} */ (self)).addEventListener('notificationclick', (event) => {
   event.notification.close()
   const url = (event.notification.data && event.notification.data.url) || DEFAULT_URL
   event.waitUntil((async () => {
-    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    const wins = await /** @type {ServiceWorkerGlobalScope} */ (/** @type {unknown} */ (self)).clients.matchAll({ type: 'window', includeUncontrolled: true })
     for (const c of wins) {
       if ('focus' in c) {
         try { c.postMessage({ type: 'cc-push-click' }) } catch (_) {}
         return c.focus()
       }
     }
-    if (self.clients.openWindow) return self.clients.openWindow(url)
+    const clients = /** @type {ServiceWorkerGlobalScope} */ (/** @type {unknown} */ (self)).clients
+    if (clients.openWindow) return clients.openWindow(url)
   })())
 })

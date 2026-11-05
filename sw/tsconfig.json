@@ -1,0 +1,14 @@
+{
+  "//": "El service worker corre con la librería de WebWorker, no con la del DOM: va en su propio chequeo.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "WebWorker"],
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "files": ["dotrino-push-sw.js"]
+}

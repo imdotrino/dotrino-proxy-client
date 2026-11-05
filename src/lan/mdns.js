@@ -14,10 +14,22 @@ export const MAX_DATA = 512
 
 const T = { A: 1, PTR: 12, TXT: 16, SRV: 33, ANY: 255 }
 
+/**
+ * Un registro leído: PTR trae `ptr`, TXT trae `txt` y SRV trae `port`.
+ * @typedef {{ name: string, type: number, ttl: number, ptr?: string, txt?: Map<string, string>, port?: number }} DnsRecord
+ */
+/** @typedef {{ name: string, type: number, unicast?: boolean }} DnsQuestion */
+/**
+ * El socket abierto y por qué interfaces sale.
+ * @typedef {{ sock: import('node:dgram').Socket, addrs: string[], queue?: Promise<void> }} LanNet
+ */
+
 // ---------- el mensaje DNS (RFC 1035 + 6762) ----------
 
+/** @param {string} name @returns {Buffer} */
 function encodeName (name) {
   const parts = name.replace(/\.$/, '').split('.')
+  /** @type {Buffer[]} */
   const bufs = []
   for (const p of parts) {
     const b = Buffer.from(p, 'utf8')
@@ -28,7 +40,9 @@ function encodeName (name) {
   return Buffer.concat(bufs)
 }
 
+/** @param {Buffer} buf @param {number} off @returns {{ name: string, end: number }} */
 function decodeName (buf, off) {
+  /** @type {string[]} */
   const labels = []
   let jumped = false
   let end = off
@@ -48,6 +62,10 @@ function decodeName (buf, off) {
   throw new Error('mdns: name loop')
 }
 
+/**
+ * @param {{ name: string, type: number, ttl?: number, flush?: boolean, rdata: Buffer }} r
+ * @returns {Buffer}
+ */
 function rr ({ name, type, ttl = TTL, flush = false, rdata }) {
   const head = Buffer.alloc(10)
   head.writeUInt16BE(type, 0)
@@ -57,6 +75,10 @@ function rr ({ name, type, ttl = TTL, flush = false, rdata }) {
   return Buffer.concat([encodeName(name), head, rdata])
 }
 
+/**
+ * @param {{ response: boolean, questions?: DnsQuestion[], answers?: Buffer[] }} m
+ * @returns {Buffer}
+ */
 function message ({ response, questions = [], answers = [] }) {
   const head = Buffer.alloc(12)
   head.writeUInt16BE(response ? 0x8400 : 0, 2)
@@ -71,12 +93,18 @@ function message ({ response, questions = [], answers = [] }) {
   return Buffer.concat([head, ...qs, ...answers])
 }
 
-/** TXT: cada cadena es `clave=valor`, con su byte de largo delante (RFC 6763 §6). */
+/**
+ * TXT: cada cadena es `clave=valor`, con su byte de largo delante (RFC 6763 §6).
+ * @param {string} kind
+ * @param {string} data
+ * @returns {Buffer[]}
+ */
 export function txtEntries (kind, data) {
   const bytes = Buffer.from(String(data), 'utf8')
   if (bytes.length > MAX_DATA) throw Object.assign(new Error(`lan: at most ${MAX_DATA} bytes`), { code: 'too-big' })
   // Trozos de hasta 200 bytes, cortados entre caracteres enteros: cada trozo es UTF-8 válido
   // por sí solo (no se corta antes de un byte de continuación, 10xxxxxx).
+  /** @type {Buffer[]} */
   const chunks = []
   for (let i = 0; i < bytes.length;) {
     let end = Math.min(i + CHUNK, bytes.length)
@@ -92,7 +120,11 @@ export function txtEntries (kind, data) {
   ]
 }
 
-/** Lo contrario de `txtEntries`: `{kind, data}` o null si falta algo. */
+/**
+ * Lo contrario de `txtEntries`: `{kind, data}` o null si falta algo.
+ * @param {Map<string, string>} map
+ * @returns {{ kind: string, data: string } | null}
+ */
 export function fromTxt (map) {
   if (map.get('v') !== '1') return null
   const kind = map.get('k')
@@ -107,11 +139,14 @@ export function fromTxt (map) {
   return { kind, data }
 }
 
+/** @param {Buffer[]} entries @returns {Buffer} */
 function txtRdata (entries) {
-  return Buffer.concat(entries.flatMap((e) => [Buffer.from([e.length]), e]))
+  return Buffer.concat(entries.flatMap((/** @type {Buffer} */ e) => [Buffer.from([e.length]), e]))
 }
 
+/** @param {Buffer} rdata @returns {Map<string, string>} */
 function parseTxt (rdata) {
+  /** @type {Map<string, string>} */
   const map = new Map()
   let off = 0
   while (off < rdata.length) {
@@ -124,18 +159,24 @@ function parseTxt (rdata) {
   return map
 }
 
-/** Lo justo para atender y buscar: preguntas y registros PTR / TXT / SRV / A. */
+/**
+ * Lo justo para atender y buscar: preguntas y registros PTR / TXT / SRV / A.
+ * @param {Buffer} buf
+ * @returns {{ response: boolean, questions: DnsQuestion[], records: DnsRecord[] }}
+ */
 export function parseMessage (buf) {
   if (buf.length < 12) throw new Error('mdns: short message')
   const flags = buf.readUInt16BE(2)
   const counts = [4, 6, 8, 10].map((o) => buf.readUInt16BE(o))
   let off = 12
+  /** @type {DnsQuestion[]} */
   const questions = []
   for (let i = 0; i < counts[0]; i++) {
     const { name, end } = decodeName(buf, off)
     questions.push({ name: name.toLowerCase(), type: buf.readUInt16BE(end), unicast: !!(buf.readUInt16BE(end + 2) & 0x8000) })
     off = end + 4
   }
+  /** @type {DnsRecord[]} */
   const records = []
   const total = counts[1] + counts[2] + counts[3]
   for (let i = 0; i < total; i++) {
@@ -145,6 +186,7 @@ export function parseMessage (buf) {
     const len = buf.readUInt16BE(end + 8)
     const start = end + 10
     if (start + len > buf.length) throw new Error('mdns: record out of bounds')
+    /** @type {DnsRecord} */
     const rec = { name: name.toLowerCase(), type, ttl }
     if (type === T.PTR) rec.ptr = decodeName(buf, start).name
     else if (type === T.TXT) rec.txt = parseTxt(buf.subarray(start, start + len))
@@ -157,25 +199,31 @@ export function parseMessage (buf) {
 
 // ---------- el socket ----------
 
+/** @param {typeof import('node:os')} os @returns {string[]} */
 function interfaces (os) {
+  /** @type {string[]} */
   const out = []
   for (const list of Object.values(os.networkInterfaces())) {
-    for (const a of list || []) if ((a.family === 'IPv4' || a.family === 4) && !a.internal) out.push(a.address)
+    // `family` es un número en Node 18.0-18.3; el tipo actual solo dice la cadena.
+    for (const a of list || []) if ((a.family === 'IPv4' || /** @type {unknown} */ (a.family) === 4) && !a.internal) out.push(a.address)
   }
   return out
 }
 
+/** @param {typeof import('node:crypto')} crypto @param {number} n @returns {string} */
 function randomHex (crypto, n) { return crypto.randomBytes(n).toString('hex') }
 
+/** @returns {Promise<LanNet>} */
 async function openSocket () {
   const [{ default: dgram }, { default: os }] = await Promise.all([import('node:dgram'), import('node:os')])
   const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true })
-  await new Promise((resolve, reject) => {
+  await new Promise(/** @param {(v?: void) => void} resolve @param {(e: Error) => void} reject */ (resolve, reject) => {
     sock.once('error', reject)
     sock.bind(PORT, () => { sock.off('error', reject); resolve() })
   }).catch((e) => {
     try { sock.close() } catch (_) {}
-    throw Object.assign(new Error(`lan: cannot listen for mDNS (${e.code || e.message})`), { code: 'no-lan' })
+    const err = /** @type {{ code?: string, message?: string }} */ (e)
+    throw Object.assign(new Error(`lan: cannot listen for mDNS (${err.code || err.message})`), { code: 'no-lan' })
   })
   const addrs = interfaces(os)
   sock.setMulticastTTL(255)
@@ -193,12 +241,16 @@ async function openSocket () {
  * Manda a cada interfaz; `build(addr)` arma el mensaje con la dirección de esa interfaz. De una
  * en una: `send` sale cuando sale, y cambiar de interfaz antes de su callback manda todo por la
  * última (pasó: los anuncios salían por docker0 y la Mac de al lado no veía nada).
+ *
+ * @param {LanNet} net
+ * @param {(addr: string | null) => Buffer} build
+ * @returns {Promise<void>}
  */
 function sendAll (net, build) {
   const targets = net.addrs.length ? net.addrs : [null]
   net.queue = (net.queue || Promise.resolve()).then(async () => {
     for (const a of targets) {
-      await new Promise((resolve) => {
+      await new Promise(/** @param {(v?: void) => void} resolve */ (resolve) => {
         try {
           if (a) net.sock.setMulticastInterface(a)
           net.sock.send(build(a), PORT, GROUP, () => resolve())
@@ -213,6 +265,8 @@ function sendAll (net, build) {
  * Anuncia `{kind, data}` en la red local hasta que se llame a lo que devuelve. Contesta a quien
  * pregunte por `_dotrino._tcp` y se anuncia solo al empezar; al parar manda la despedida (TTL 0).
  * Lanza `no-lan` si aquí no se puede usar mDNS.
+ * @param {string} kind
+ * @param {string} data
  * @returns {Promise<() => void>}
  */
 export async function announceLan (kind, data) {
@@ -224,6 +278,7 @@ export async function announceLan (kind, data) {
   const host = `dotrino-${id}.local`
   const srv = Buffer.alloc(6)
   srv.writeUInt16BE(0, 0); srv.writeUInt16BE(0, 2); srv.writeUInt16BE(FAKE_PORT, 4)
+  /** @param {string | null} addr @param {number} ttl @returns {Buffer[]} */
   const records = (addr, ttl) => [
     rr({ name: SERVICE, type: T.PTR, ttl, rdata: encodeName(instance) }),
     rr({ name: instance, type: T.SRV, ttl, flush: true, rdata: Buffer.concat([srv, encodeName(host)]) }),
@@ -232,7 +287,7 @@ export async function announceLan (kind, data) {
   ]
   const announce = (ttl = TTL) => sendAll(net, (a) => message({ response: true, answers: records(a, ttl) }))
   const wanted = new Set([SERVICE, instance.toLowerCase(), host.toLowerCase()])
-  net.sock.on('message', (buf) => {
+  net.sock.on('message', (/** @type {Buffer} */ buf) => {
     let m
     try { m = parseMessage(buf) } catch (_) { return }
     if (m.response) return
@@ -257,21 +312,26 @@ export async function announceLan (kind, data) {
 /**
  * Lo que anuncian en la red local los aparatos con ese `kind`, durante `timeoutMs`. `onFound`
  * avisa de cada uno según aparece (una vez por `data`). Lanza `no-lan` si aquí no hay mDNS.
+ * @param {{ kind?: string, timeoutMs?: number, onFound?: (b: { kind: string, data: string }) => void }} opts
  * @returns {Promise<{kind: string, data: string}[]>}
  */
 export async function discoverLan ({ kind, timeoutMs = 8000, onFound } = /** @type {any} */ ({})) {
   const net = await openSocket()
+  /** @type {Map<string, { kind: string, data: string }>} */
   const seen = new Map()
+  /** @type {Set<string>} */
   const asked = new Set()
+  /** @type {Array<{ kind: string, data: string }>} */
   const found = []
+  /** @param {DnsQuestion[]} questions */
   const query = (questions) => sendAll(net, () => message({ response: false, questions }))
-  net.sock.on('message', (buf) => {
+  net.sock.on('message', (/** @type {Buffer} */ buf) => {
     let m
     try { m = parseMessage(buf) } catch (_) { return }
     if (!m.response) return
     for (const r of m.records) {
       if (r.type === T.PTR && r.name === SERVICE && r.ttl > 0) {
-        const inst = r.ptr.toLowerCase()
+        const inst = /** @type {string} */ (r.ptr).toLowerCase()
         if (!seen.has(inst) && !asked.has(inst)) {
           asked.add(inst)
           // Si el TXT no vino en el mismo paquete, se pregunta por él.
@@ -279,7 +339,7 @@ export async function discoverLan ({ kind, timeoutMs = 8000, onFound } = /** @ty
         }
       }
       if (r.type === T.TXT && r.name.endsWith('.' + SERVICE) && r.ttl > 0 && !seen.has(r.name)) {
-        const got = fromTxt(r.txt)
+        const got = fromTxt(/** @type {Map<string, string>} */ (r.txt))
         if (!got) continue
         seen.set(r.name, got)
         if (kind && got.kind !== kind) continue
