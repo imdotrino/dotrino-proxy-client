@@ -412,6 +412,11 @@ export class WebSocketProxyClient {
    * Firma la llave de comunicación de la bóveda; el acta prueba que es de la cuenta.
    */
   registerWake (opts: { publicKey: string; sign: SignFn; url: string; acta: object; channel?: string; self?: boolean }): Promise<{ kind: 'wake'; url: string; profile: string | null }>
+  /**
+   * Registrar el token de push de una app nativa (FCM en Android) bajo esta pubkey, en vez de
+   * una PushSubscription del navegador. El proxio lo usa para el mismo timbre sin contenido.
+   */
+  registerPushToken (opts: { publicKey: string; sign: SignFn; token: string; kind?: 'fcm' }): Promise<{ kind: 'fcm'; token: string }>
   /** Desactivar Web Push: cancela la subscription local y la borra del proxy. */
   disablePush (opts: DisablePushOptions): Promise<void>
   /** Programar un push a la propia pubkey (one-shot o cron). Self-only. */
