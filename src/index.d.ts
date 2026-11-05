@@ -118,6 +118,8 @@ export type ProxyEvent =
   | 'channel_left'
   | 'peer_disconnected'
   | 'peer_identity'
+  /** Ese token ya no es de esa identidad (se reconectó con otro): deja de usarlo. `(token, peerPubkey)`. */
+  | 'token_gone'
   | 'reconnecting'
   | 'reconnect_failed'
   | 'abuse_notice'
