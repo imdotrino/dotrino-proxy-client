@@ -272,6 +272,14 @@ export class WebSocketProxyClient {
   constructor (options?: WebSocketProxyClientOptions)
   readonly isConnected: boolean
   token: string | null
+  /** The proxy node this connection landed on (set on `connected`; undefined before). */
+  node?: string | null
+  /** The nodes of the federation known through this connection: this one first, then its peers (set on `connected`). */
+  knownNodes?: string[]
+  /** The other nodes this node said it federates with (set on `connected`). */
+  peers?: string[]
+  /** Refuse to send or accept directed messages in the clear (see `requireSealed` in the options). */
+  requireSealed: boolean
   connect (): Promise<string>
   close (): void
   on (event: ProxyEvent, handler: (...args: any[]) => void): () => void
@@ -309,7 +317,7 @@ export class WebSocketProxyClient {
   sendSealed (
     toPubkeys: string | string[],
     payload: any,
-    opts?: { peerEncPub?: string; ephemeral?: boolean; quiet?: boolean; app?: string }
+    opts?: { peerEncPub?: string; ephemeral?: boolean; quiet?: boolean; app?: string; /** Seal with the pilar's own envelope even when an app `sealing` is plugged in (0.47.0). */ pilar?: boolean }
   ): Promise<void>
   /**
    * Seal and send BY TOKEN (which is what peers in a room use, and the only route that
@@ -321,7 +329,7 @@ export class WebSocketProxyClient {
   sendSealedTo (
     toTokens: string | string[],
     payload: any,
-    opts: { peerPubkey?: string; peerEncPub?: string }
+    opts?: { peerPubkey?: string; peerEncPub?: string; /** Seal with the pilar's own envelope even when an app `sealing` is plugged in (0.47.0). */ pilar?: boolean }
   ): Promise<void>
   /**
    * Send BY TOKEN something the app already encrypted itself (its own session channel).
