@@ -220,6 +220,18 @@ const vistos = await client.discoverNearby({ kind: 'contact', timeoutMs: 6000 })
 import { discoverLan } from '@dotrino/proxy-client/lan'                  // solo la red local, sin cliente
 ```
 
+## El cliente D-Bus (0.48.0+)
+
+El cliente D-Bus mínimo y sin dependencias que habla con BlueZ se exporta para quien necesite otro
+bus del escritorio (la accesibilidad de `@dotrino/remote-desktop-agent`). Solo Node y `unix:path`.
+
+```js
+import { openBus, openSessionBus } from '@dotrino/proxy-client/dbus'
+const session = await openSessionBus()                                    // null sin bus de sesión
+const [addr] = await session.call({ destination: 'org.a11y.Bus', path: '/org/a11y/bus', iface: 'org.a11y.Bus', member: 'GetAddress' })
+const a11y = await openBus(addr)
+```
+
 ## Estadísticas de red (0.28.0+)
 
 `await client.stats()` dice cuánto entró y salió, **por conexión**, y **por qué camino**:

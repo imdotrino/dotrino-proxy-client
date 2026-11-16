@@ -6,7 +6,10 @@
  * quietos. Y la bóveda se distribuye como un ejecutable único (SEA): un módulo nativo no
  * entra. D-Bus no es un protocolo del ecosistema; esto no reimplementa nada nuestro.
  *
- * Lo justo para BlueZ: autenticación EXTERNAL, llamadas, respuestas, errores, señales,
+ * Nació para BlueZ y lo exporta el pilar (`@dotrino/proxy-client/dbus`) para quien necesite
+ * otro bus del escritorio (la accesibilidad de `@dotrino/remote-desktop-agent`).
+ *
+ * Lo justo: autenticación EXTERNAL, llamadas, respuestas, errores, señales,
  * exportar objetos (BlueZ nos llama para el GATT) y los tipos que BlueZ usa. Solo
  * little-endian al escribir; al leer, los dos.
  */
@@ -452,19 +455,42 @@ export class DBusConnection {
  * @returns {Promise<DBusConnection | null>}
  */
 export async function openSystemBus () {
+  return openBus(process.env.DBUS_SYSTEM_BUS_ADDRESS || 'unix:path=/var/run/dbus/system_bus_socket')
+}
+
+/**
+ * Abre el bus de la SESIÓN del usuario (`DBUS_SESSION_BUS_ADDRESS`). `null` si no hay sesión
+ * gráfica con bus (un servidor sin escritorio).
+ *
+ * @returns {Promise<DBusConnection | null>}
+ */
+export async function openSessionBus () {
+  const addr = process.env.DBUS_SESSION_BUS_ADDRESS ||
+    (typeof process.getuid === 'function' ? `unix:path=/run/user/${process.getuid()}/bus` : '')
+  return addr ? openBus(addr) : null
+}
+
+/**
+ * Abre un bus por su dirección (`unix:path=…`; la de accesibilidad, por ejemplo, la da
+ * `org.a11y.Bus.GetAddress`). `null` si esa dirección no es un socket que exista aquí. Solo
+ * `unix:path`: es lo que usan los buses de Linux que nos interesan.
+ *
+ * El bus NUNCA retiene el proceso: acompaña a lo que esté vivo por otra cosa (la conexión al
+ * proxio). Con él retenido, una prueba que ya cerró todo no terminaba nunca.
+ *
+ * @param {string} address
+ * @returns {Promise<DBusConnection | null>}
+ */
+export async function openBus (address) {
   const netMod = 'node:net'
   const fsMod = 'node:fs'
   const net = await import(netMod)
   const fs = await import(fsMod)
-  const addr = process.env.DBUS_SYSTEM_BUS_ADDRESS || 'unix:path=/var/run/dbus/system_bus_socket'
-  const m = /unix:path=([^,;]+)/.exec(addr)
+  const m = /unix:path=([^,;]+)/.exec(address)
   if (!m || !fs.existsSync(m[1])) return null
   const socket = net.createConnection(m[1])
-  // El bus no puede retener el proceso: el Bluetooth acompaña a lo que esté vivo por otra cosa
-  // (la conexión al proxio). Con él retenido, una prueba que ya cerró todo no terminaba nunca.
   socket.unref()
-  const conn = await withSetupTimeout(socket, openOn(socket))
-  return conn
+  return withSetupTimeout(socket, openOn(socket))
 }
 
 /** @param {import('node:net').Socket} socket @returns {Promise<DBusConnection>} */
@@ -505,7 +531,7 @@ async function withSetupTimeout (socket, p) {
   let t
   try {
     return await Promise.race([p, new Promise(/** @param {(v: never) => void} resolve @param {(e: Error) => void} reject */ (resolve, reject) => {
-      t = setTimeout(() => reject(new DBusError('org.freedesktop.DBus.Error.Timeout', `the system bus did not answer in ${SETUP_TIMEOUT_MS} ms`)), SETUP_TIMEOUT_MS)
+      t = setTimeout(() => reject(new DBusError('org.freedesktop.DBus.Error.Timeout', `the bus did not answer in ${SETUP_TIMEOUT_MS} ms`)), SETUP_TIMEOUT_MS)
       t.unref?.()
     })])
   } catch (e) {

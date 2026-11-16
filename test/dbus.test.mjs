@@ -50,3 +50,9 @@ test('la conexión rearma tramas partidas, contesta llamadas y resuelve respuest
   sock.emit('data', Buffer.from(encodeMessage({ type: 3, serial: 9, replySerial: sent.serial, error: 'org.bluez.Error.Failed', signature: 's', body: ['nope'] })))
   await assert.rejects(p, (e) => e.dbusName === 'org.bluez.Error.Failed')
 })
+
+test('openBus: una dirección que no es un socket de aquí da null, no lanza', async () => {
+  const { openBus } = await import('../src/ble/dbus.js')
+  assert.equal(await openBus('unix:path=/nonexistent/dotrino-test-bus'), null)
+  assert.equal(await openBus('tcp:host=localhost,port=1'), null)
+})
