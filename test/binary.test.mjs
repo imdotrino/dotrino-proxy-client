@@ -247,5 +247,5 @@ test('my own greeting announces binary', () => {
   c.myPublickey = 'PK-A'
   c.token = 'A'
   c.helloTo('B')
-  assert.deepEqual(out[0].speaks, ['binary'])
+  assert.deepEqual(out[0].speaks, ['binary', 'parts'])
 })

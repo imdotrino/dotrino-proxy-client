@@ -82,6 +82,15 @@ y salta `token_gone`. Con `requireSealed` se niega igual que `send`.
 mensaje del camino que toca **sale en partes selladas** y la otra punta lo rearma antes de
 emitir `message` (con `meta.parts`). La app no trocea nada ni sabe por dónde fue.
 
+**`send` y `sendToOrQueue` también trocean (0.49.0)**, para lo que la app ya cifró por su cuenta
+(el canal de `@dotrino/remote-agent`), pero **solo hacia quien dijo `parts` en su saludo**
+(`helloTo`; `client.speaks(token, 'parts')`). A quien no lo dijo —no ha saludado, o es de antes:
+las apps nativas todavía no rearman— le llega entero, como siempre. Mientras salen las partes de
+uno grande, lo que se manda detrás al mismo token espera su turno: llega en el orden en que se
+mandó. Un fallo (`too-big-for-relay`, `direct-lost`) sale por el evento `error` con su `code`,
+porque `send` no devuelve nada que esperar. Y lo que llega **en claro** en partes se rearma igual
+que lo sellado.
+
 | Camino | Parte | Tope del mensaje entero |
 |---|---|---|
 | por token, canal directo (WebRTC directo o por TURN) | 40 KB de JSON (libwebrtc rechaza > 64 KiB), esperando a que el búfer del canal baje | **sin tope** |

@@ -38,7 +38,7 @@ test('el saludo dice quién soy y qué entiendo, y nada más', () => {
   c.myPublickey = 'PK-MIA'
   c.helloTo('OTRO')
   const [greeting] = directed(c, 'OTRO')
-  assert.deepEqual(greeting, { t: '__cc_hello__', publickey: 'PK-MIA', speaks: ['binary'] })
+  assert.deepEqual(greeting, { t: '__cc_hello__', publickey: 'PK-MIA', speaks: ['binary', 'parts'] })
 })
 
 test('saludar sin identificarse no sale: un saludo sin identidad no dice nada', () => {
