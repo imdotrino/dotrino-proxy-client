@@ -65,3 +65,16 @@ test('lo que llega en claro en partes se rearma y sale una sola vez, entero', as
   assert.equal(seen.length, 1)
   assert.deepEqual(seen[0], msg)
 })
+
+test('un canal directo que no vacía su búfer no cuelga: se cierra y se dice que no salió', async () => {
+  const { WebRTCManager } = await import('../src/webrtc.js')
+  const m = Object.create(WebRTCManager.prototype)
+  const closed = []
+  m.peers = new Map([['T', { dc: { readyState: 'open', bufferedAmount: 10_000_000, send () {} }, pc: { connectionState: 'connected' } }]])
+  m.closePeer = (t) => { closed.push(t); m.peers.delete(t) }
+  const t0 = Date.now()
+  const ok = await m.sendDirect('T', 'x', 1024, 200)
+  assert.equal(ok, false)
+  assert.deepEqual(closed, ['T'])
+  assert.ok(Date.now() - t0 < 2000)
+})
