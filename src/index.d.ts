@@ -444,6 +444,19 @@ export class WebSocketProxyClient {
 }
 
 export function canonicalStringify (value: any): string
+/** El par de firma de este cliente. */
+export interface Keypair { privateKey: CryptoKey; publicKey: CryptoKey; publicJwk: JsonWebKey }
+/** Dónde se guarda el par: `get()` devuelve lo guardado (o nada) y `set()` lo guarda. */
+export interface KeypairStore {
+  get (): Promise<Partial<Keypair> | null | undefined> | Partial<Keypair> | null | undefined
+  set (pair: Keypair): Promise<void> | void
+}
+/**
+ * Cambiar dónde se guarda el par de firma (por defecto: localStorage en una página,
+ * IndexedDB en un worker). Un store en memoria hace que el par muera con la pestaña.
+ * `extractable` hace falta si el store serializa el par a texto.
+ */
+export function setKeypairStore (store: KeypairStore | null, opts?: { extractable?: boolean }): void
 export function getPublicKeyJwk (): Promise<string>
 export function signData (data: any): Promise<string>
 /** Verify someone else's signature over the canonical JSON of `data`. */
